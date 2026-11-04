@@ -1,0 +1,6 @@
+id;type;question;expected_answer;context;metadata.category
+support-01;rag;Quel est le délai de remboursement ?;Les remboursements sont possibles sous 14 jours.;Les remboursements sont possibles sous 14 jours.;remboursement
+support-02;rag;Les frais de retour sont-ils payants ?;Les retours sont gratuits en point relais.;Les retours sont gratuits en point relais.;retour
+support-03;rag;Peut-on payer en trois fois ?;Le paiement en trois fois est possible dès 100 euros.;Le paiement en trois fois est possible dès 100 euros.;paiement
+support-04;rag;Où suivre ma commande ?;Le suivi est dans l'onglet Mes commandes.;Le suivi est dans l'onglet Mes commandes.;livraison
+support-05;rag;Comment joindre le support ?;Le support répond par chat de 9 h à 18 h.;Le support répond par chat de 9 h à 18 h.;contact

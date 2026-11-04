@@ -1,0 +1,37 @@
+# Évaluation locale avec le faux fournisseur : uv run python scripts/fake_llm.py
+# puis, à la racine du dépôt : uv run evalforge run examples/support-faq/evalforge.yaml --report rapport.html
+dataset: support-faq.csv
+
+prompt:
+  name: faq
+  system: Tu es un agent de support client. Réponds en une phrase.
+  template: |-
+    Réponds à partir du contexte.
+    Contexte : {{ context }}
+    Question : {{ question }}
+
+models:
+  - name: Modèle sourcé
+    base_url: http://127.0.0.1:8100/v1
+    model: grounded
+    pricing: { input_per_million_usd: 0.27, output_per_million_usd: 1.10 }
+  - name: Modèle vague
+    base_url: http://127.0.0.1:8100/v1
+    model: vague
+    # Avec un vrai fournisseur : api_key_env: DEEPSEEK_API_KEY (la clé reste dans l'environnement)
+
+metrics: [exact_match, contains_expected, judge_correctness]
+
+judge:
+  name: Juge
+  base_url: http://127.0.0.1:8100/v1
+  model: judge
+
+execution: { max_concurrency: 5, timeout_seconds: 30 }
+
+# Porte de qualité : chaque modèle doit atteindre ces taux, sinon code de sortie 1 (la CI échoue).
+thresholds:
+  judge_correctness: 0.8
+
+# Le faux fournisseur écoute sur 127.0.0.1 : adresses locales autorisées pour cet exemple.
+allow_private_urls: true

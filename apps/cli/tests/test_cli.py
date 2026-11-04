@@ -1,0 +1,106 @@
+"""La CLI de bout en bout, contre le faux fournisseur de scripts/fake_llm.py branché en mémoire."""
+
+import importlib.util
+import json
+import shutil
+from pathlib import Path
+
+import httpx
+import pytest
+from typer.testing import CliRunner
+
+from evalforge_cli import runner
+from evalforge_cli.main import app
+
+ROOT = Path(__file__).resolve().parents[3]
+EXAMPLE = ROOT / "examples" / "support-faq"
+
+
+def fake_llm_app():
+    spec = importlib.util.spec_from_file_location("fake_llm", ROOT / "scripts" / "fake_llm.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.app
+
+
+@pytest.fixture
+def example(tmp_path: Path, monkeypatch) -> Path:
+    shutil.copytree(EXAMPLE, tmp_path / "example")
+    llm = fake_llm_app()
+    # Le faux fournisseur répond en mémoire ; le contrôle des adresses (check_url) reste actif.
+    monkeypatch.setattr(runner, "default_transport", lambda allow_private: httpx.ASGITransport(app=llm))
+    return tmp_path / "example"
+
+
+def invoke(*args: str):
+    return CliRunner().invoke(app, list(args))
+
+
+def test_l_exemple_compare_les_modeles_et_la_porte_bloque_le_modele_vague(example: Path):
+    report, data = example / "rapport.html", example / "rapport.json"
+
+    result = invoke("run", str(example / "evalforge.yaml"), "--report", str(report), "--json", str(data))
+
+    assert result.exit_code == 1, result.output
+    assert "Modèle vague : judge_correctness à 0 %, minimum 80 %" in result.output
+    assert "Modèle sourcé : judge_correctness" not in result.output
+    payload = json.loads(data.read_text(encoding="utf-8"))
+    rates = {m["model"]: {x["name"]: x["pass_rate"] for x in m["metrics"]} for m in payload["models"]}
+    assert rates["Modèle sourcé"] == {"exact_match": 1.0, "contains_expected": 1.0, "judge_correctness": 1.0}
+    assert rates["Modèle vague"]["judge_correctness"] == 0.0
+    assert [r["case_id"] for r in payload["results"][:2]] == ["support-01", "support-01"]
+    html = report.read_text(encoding="utf-8")
+    assert "La réponse reprend l&#39;information attendue." in html
+    assert "inconnu" in html  # le modèle vague n'a pas de prix
+
+
+def test_la_porte_passe_quand_chaque_modele_atteint_les_seuils(example: Path):
+    config = example / "evalforge.yaml"
+    text = config.read_text(encoding="utf-8")
+    # On ne garde que le modèle sourcé : la section du modèle vague va jusqu'à « metrics: ».
+    config.write_text(text[: text.index("  - name: Modèle vague")] + text[text.index("metrics:") :], encoding="utf-8")
+
+    result = invoke("run", str(config))
+
+    assert result.exit_code == 0, result.output
+    assert "Porte de qualité franchie" in result.output
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (("judge_correctness]", "faithfulness]"), "métriques inconnues : faithfulness"),
+        (("allow_private_urls: true", "allow_private_urls: false"), "adresse non publique refusée : 127.0.0.1"),
+        (("dataset: support-faq.csv", "dataset: absent.csv"), "absent.csv"),
+        (("  judge_correctness: 0.8", "  judge_correctness: 80"), "un seuil est un taux entre 0 et 1"),
+    ],
+)
+def test_une_configuration_invalide_s_arrete_avec_le_code_2(example: Path, change, message):
+    config = example / "evalforge.yaml"
+    config.write_text(config.read_text(encoding="utf-8").replace(*change), encoding="utf-8")
+
+    result = invoke("run", str(config))
+
+    assert result.exit_code == 2, result.output
+    assert message in " ".join(result.output.split())
+
+
+def test_la_cle_vient_de_l_environnement(example: Path, monkeypatch):
+    config = example / "evalforge.yaml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace("model: grounded", "model: grounded\n    api_key_env: CLE_ABSENTE"),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("CLE_ABSENTE", raising=False)
+
+    result = invoke("run", str(config))
+
+    assert result.exit_code == 2
+    assert "CLE_ABSENTE absente" in " ".join(result.output.split())
+
+
+def test_la_liste_des_metriques():
+    result = invoke("metrics")
+
+    assert result.exit_code == 0
+    assert "judge_faithfulness" in result.output

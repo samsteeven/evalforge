@@ -1,0 +1,27 @@
+[project]
+name = "evalforge-cli"
+version = "0.1.0"
+description = "Évaluer en local ou en CI, avec le même moteur que la plateforme"
+requires-python = ">=3.13"
+dependencies = [
+    "evalforge-engine",
+    "evalforge-llm-gateway",
+    "httpx>=0.28",
+    "pydantic>=2.10",
+    "pyyaml>=6.0",
+    "typer>=0.15",
+]
+
+[project.scripts]
+evalforge = "evalforge_cli.main:app"
+
+[tool.uv.sources]
+evalforge-engine = { workspace = true }
+evalforge-llm-gateway = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "evalforge_cli"
