@@ -49,7 +49,10 @@ class WorkspaceAccess:
 
 
 async def workspace_access(
-    x_workspace_id: Annotated[uuid.UUID, Header()], user_id: UserDep, session: SessionDep
+    # Hors du schéma OpenAPI : décrit une fois dans la description de l'API, ajouté par le client à chaque appel.
+    x_workspace_id: Annotated[uuid.UUID, Header(include_in_schema=False)],
+    user_id: UserDep,
+    session: SessionDep,
 ) -> WorkspaceAccess:
     role = await session.scalar(
         select(WorkspaceMember.role).where(

@@ -59,7 +59,17 @@ def create_app(settings: Settings | None = None, provider_factory: ProviderFacto
             await http_client.aclose()
             await engine.dispose()
 
-    app = FastAPI(title="EvalForge", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(
+        title="EvalForge",
+        version="0.2.0",
+        description=(
+            "Évaluation d'applications LLM, RAG et agents.\n\n"
+            "Authentification : `Authorization: Bearer <jeton d'accès>` (voir `/api/v1/auth`). "
+            "Toutes les routes métier exigent aussi l'en-tête `X-Workspace-Id` : l'espace de travail courant, "
+            "dont l'utilisateur doit être membre."
+        ),
+        lifespan=lifespan,
+    )
     app.state.settings = settings
     app.state.secret_box = SecretBox(settings.secret_key.get_secret_value())
     app.state.access_tokens = AccessTokens(settings.jwt_secret_key.get_secret_value(), settings.access_token_minutes)

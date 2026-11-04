@@ -11,11 +11,14 @@
 | 007 | pgvector seulement si une fonctionnalité interne le justifie : EvalForge évalue des RAG externes | acceptée, hors MVP |
 | 008 | Ragas et DeepEval derrière des adaptateurs internes | acceptée, incrément 3 |
 | 009 | OpenTelemetry | acceptée, incrément 6 |
-| [010](0010-react-typescript.md) | React et TypeScript pour l'interface (au lieu de Vue 3) | acceptée, incrément 2 |
+| [010](0010-react-typescript.md) | React et TypeScript pour l'interface (au lieu de Vue 3) | acceptée, appliquée |
 | 011 | ECS Fargate plutôt que Kubernetes | acceptée, incrément 6 |
 | 012 | S3 pour les artefacts volumineux | acceptée, incrément 3 |
 | [013](0013-execution-dans-l-api-provisoire.md) | Exécution des runs dans le processus de l'API, en attendant les workers | provisoire |
 | [014](0014-gabarits-restreints.md) | Gabarits de prompt limités à `{{ variable }}` | acceptée, appliquée |
-| [015](0015-espace-par-en-tete-provisoire.md) | Espace de travail par en-tête, en attendant l'authentification | provisoire |
+| [015](0015-espace-par-en-tete-provisoire.md) | Espace de travail par en-tête, en attendant l'authentification | remplacée par 016 |
+| [016](0016-sessions.md) | Jeton d'accès court, jeton de renouvellement à usage unique en cookie HttpOnly, rôles relus à chaque requête | acceptée, appliquée |
+| [017](0017-protection-ssrf.md) | Protection SSRF au moment de la connexion | acceptée, appliquée |
+| [018](0018-outils-de-test-du-front.md) | Vitest et Cypress pour le front | acceptée, appliquée |
 
 Les ADR 003 à 012 sont rédigées en détail à l'incrément qui les met en œuvre ; leur justification d'origine est dans [vision.md](../vision.md).

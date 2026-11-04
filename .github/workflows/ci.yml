@@ -41,3 +41,79 @@ jobs:
           until docker exec pg pg_isready -U evalforge -d evalforge; do sleep 1; done
           uv run alembic -c apps/api/alembic.ini upgrade head
           uv run alembic -c apps/api/alembic.ini check
+
+      - name: Contrat OpenAPI du front à jour
+        run: |
+          uv run python -m evalforge_api.openapi_export frontend/openapi.json
+          git diff --exit-code frontend/openapi.json
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      CYPRESS_INSTALL_BINARY: 0 # pas de navigateur pour ce job
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Types du client générés depuis le contrat
+        run: |
+          npm run api:types
+          git diff --exit-code src/api/schema.d.ts
+
+      - name: Types, lint, tests, construction
+        run: |
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build
+
+  e2e:
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EVALFORGE_DATABASE_URL: postgresql+asyncpg://evalforge:evalforge@localhost:5435/evalforge
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: PostgreSQL et migrations
+        run: |
+          docker run -d --name pg --tmpfs /var/lib/postgresql:rw -e POSTGRES_USER=evalforge -e POSTGRES_PASSWORD=evalforge \
+            -e POSTGRES_DB=evalforge -p 5435:5432 postgres:18-alpine
+          uv sync --locked
+          until docker exec pg pg_isready -U evalforge -d evalforge; do sleep 1; done
+          uv run alembic -c apps/api/alembic.ini upgrade head
+
+      - name: Parcours Cypress (faux fournisseur, API, front)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run e2e
+
+      - uses: actions/upload-artifact@v5
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: frontend/cypress/screenshots
+          retention-days: 7

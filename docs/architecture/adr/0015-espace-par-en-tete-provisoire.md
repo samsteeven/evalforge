@@ -1,6 +1,6 @@
 # ADR-015 : espace de travail par en-tête (provisoire)
 
-**État** : provisoire, remplacée à l'incrément 2 par l'authentification.
+**État** : remplacée par l'[ADR-016](0016-sessions.md) à l'incrément 2. L'en-tête `X-Workspace-Id` est conservé, mais il n'est accepté que si l'utilisateur authentifié est membre de l'espace.
 
 ## Contexte
 
