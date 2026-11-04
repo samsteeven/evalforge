@@ -11,7 +11,7 @@
 | 007 | pgvector seulement si une fonctionnalité interne le justifie : EvalForge évalue des RAG externes | acceptée, hors MVP |
 | 008 | Ragas et DeepEval derrière des adaptateurs internes | acceptée, incrément 3 |
 | 009 | OpenTelemetry | acceptée, incrément 6 |
-| 010 | Vue 3 et TypeScript | acceptée, incrément 2 |
+| [010](0010-react-typescript.md) | React et TypeScript pour l'interface (au lieu de Vue 3) | acceptée, incrément 2 |
 | 011 | ECS Fargate plutôt que Kubernetes | acceptée, incrément 6 |
 | 012 | S3 pour les artefacts volumineux | acceptée, incrément 3 |
 | [013](0013-execution-dans-l-api-provisoire.md) | Exécution des runs dans le processus de l'API, en attendant les workers | provisoire |

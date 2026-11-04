@@ -89,7 +89,7 @@ uv run ruff check . && uv run ruff format --check .
 | Incrément | Contenu | État |
 |---|---|---|
 | 1 | Tranche verticale backend : projets, jeux versionnés, prompts versionnés, fournisseurs, expériences, runs, métriques déterministes, latence, tokens, coût | **fait** |
-| 2 | Interface Vue 3 (projets, jeux, expériences, détail d'un run), authentification JWT et rôles, protection SSRF | à faire |
+| 2 | Interface React + TypeScript (projets, jeux, expériences, détail d'un run), authentification JWT et rôles, protection SSRF | à faire |
 | 3 | Juge LLM, adaptateurs Ragas et DeepEval, import CSV, CLI, rapport HTML | à faire |
 | 4 | Outbox, RabbitMQ (aio-pika), workers, reprises et file morte ; baseline et détection de régression | à faire |
 | 5 | Traces et trajectoires d'agents, évaluation des appels d'outils, webhooks et contrôle qualité en CI | à faire |

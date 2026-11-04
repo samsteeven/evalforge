@@ -25,7 +25,7 @@ Le socle commun, construit en premier : **jeu de données → expérience → ru
 Monolithe modulaire (FastAPI) et workers indépendants pour les traitements longs, plutôt que des microservices : la complexité est dans l'orchestration des évaluations, pas dans le découpage du domaine.
 
 ```
-Vue 3 + TypeScript ──► FastAPI (/api/v1, SSE pour la progression)
+React + TypeScript ──► FastAPI (/api/v1, SSE pour la progression)
                           │  PostgreSQL : métadonnées, résultats, outbox
                           │  Redis : cache, verrous, limites
                           ▼
