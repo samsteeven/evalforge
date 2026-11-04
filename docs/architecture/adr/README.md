@@ -20,5 +20,7 @@
 | [016](0016-sessions.md) | Jeton d'accès court, jeton de renouvellement à usage unique en cookie HttpOnly, rôles relus à chaque requête | acceptée, appliquée |
 | [017](0017-protection-ssrf.md) | Protection SSRF au moment de la connexion | acceptée, appliquée |
 | [018](0018-outils-de-test-du-front.md) | Vitest et Cypress pour le front | acceptée, appliquée |
+| [019](0019-juge-llm.md) | Juge LLM natif à grilles versionnées ; réponse illisible = métrique indisponible | acceptée, appliquée |
+| [020](0020-cli-porte-de-qualite.md) | CLI qui partage le moteur et sert de porte de qualité en CI | acceptée, appliquée |
 
 Les ADR 003 à 012 sont rédigées en détail à l'incrément qui les met en œuvre ; leur justification d'origine est dans [vision.md](../vision.md).

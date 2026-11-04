@@ -111,15 +111,29 @@ function ImportVersion({ datasetId }: { datasetId: string }) {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [text, setText] = useState('')
+  const [file, setFile] = useState<File | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const importVersion = useMutation({
+    // Un fichier (JSON ou CSV) part tel quel : le serveur le lit et le valide. Sinon, le JSON collé.
     mutationFn: async () =>
-      unwrapWithStatus(
-        api.POST('/api/v1/datasets/{dataset_id}/versions', {
-          params: { path: { dataset_id: datasetId } },
-          body: { cases: parseCases(text) },
-        }),
-      ),
+      file
+        ? unwrapWithStatus(
+            api.POST('/api/v1/datasets/{dataset_id}/versions/import', {
+              params: { path: { dataset_id: datasetId } },
+              body: { file: file as unknown as string },
+              bodySerializer: () => {
+                const form = new FormData()
+                form.append('file', file)
+                return form
+              },
+            }),
+          )
+        : unwrapWithStatus(
+            api.POST('/api/v1/datasets/{dataset_id}/versions', {
+              params: { path: { dataset_id: datasetId } },
+              body: { cases: parseCases(text) },
+            }),
+          ),
     // La confirmation n'apparaît qu'une fois la liste des versions rechargée : jamais « créée » à côté d'une liste vide.
     onSuccess: async ({ data, status }) => {
       await Promise.all([
@@ -132,13 +146,11 @@ function ImportVersion({ datasetId }: { datasetId: string }) {
           : `Contenu identique à la version ${data.version} : aucune nouvelle version.`,
       )
       setText('')
+      setFile(null)
       setOpen(false) // le message de confirmation s'affiche à côté du bouton d'import
     },
   })
-  const readFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) setText(await file.text())
-  }
+  const chooseFile = (event: ChangeEvent<HTMLInputElement>) => setFile(event.target.files?.[0] ?? null)
   const submit = (event: FormEvent) => {
     event.preventDefault()
     setNotice(null)
@@ -155,13 +167,27 @@ function ImportVersion({ datasetId }: { datasetId: string }) {
   }
   return (
     <form onSubmit={submit} className="mt-4 space-y-3 rounded-lg border border-slate-800 p-4">
-      <Field label="Cas de test (JSON)" hint="Chaque cas : input, expected.answer, context, metadata. Une version est immuable.">
-        <Textarea rows={10} required value={text} onChange={(e) => setText(e.target.value)} aria-label="Cas de test (JSON)" />
+      <Field
+        label="Fichier JSON ou CSV"
+        hint="CSV : colonnes question, expected_answer, context (passages séparés par ||), metadata.<nom> ; séparateur virgule ou point-virgule. 2 Mo, 1 000 cas."
+      >
+        <input
+          type="file"
+          accept=".json,.csv,application/json,text/csv"
+          onChange={chooseFile}
+          className="block text-sm text-slate-400"
+        />
       </Field>
-      <div className="flex flex-wrap items-center gap-3">
-        <input type="file" accept="application/json,.json" onChange={(e) => void readFile(e)} className="text-sm text-slate-400" />
-        <Button type="button" variant="ghost" onClick={() => setText(JSON.stringify(SAMPLE_CASES, null, 2))}>Charger l'exemple</Button>
-      </div>
+      {!file && (
+        <>
+          <Field label="Ou cas de test collés (JSON)" hint="Chaque cas : input, expected.answer, context, metadata. Une version est immuable.">
+            <Textarea rows={10} required value={text} onChange={(e) => setText(e.target.value)} aria-label="Cas de test (JSON)" />
+          </Field>
+          <Button type="button" variant="ghost" onClick={() => setText(JSON.stringify(SAMPLE_CASES, null, 2))}>
+            Charger l'exemple
+          </Button>
+        </>
+      )}
       <ErrorAlert error={importVersion.error} />
       <div className="flex gap-2">
         <Button type="submit" busy={importVersion.isPending}>Créer la version</Button>

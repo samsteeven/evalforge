@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { api, unwrap, type Schemas } from '../api/client'
-import { Badge, Card, ErrorAlert, Loading, PageTitle } from '../components/ui'
+import { Badge, Button, Card, ErrorAlert, Loading, PageTitle } from '../components/ui'
 import { ModelComparison } from '../features/runs/ModelComparison'
-import { milliseconds, RESULT_STATUS, RUN_STATUS, usd, when } from '../lib/format'
+import { milliseconds, percent, RESULT_STATUS, RUN_STATUS, usd, when } from '../lib/format'
 
 const ACTIVE = new Set(['queued', 'running'])
 
@@ -12,6 +13,7 @@ type Configuration = {
   dataset_version: { version: number; checksum: string }
   models: { name: string; model_name: string }[]
   metrics: string[]
+  judge?: { name: string; model_name: string } | null
 }
 
 export function RunPage() {
@@ -63,7 +65,12 @@ export function RunPage() {
       <PageTitle
         title="Run d'évaluation"
         subtitle={`Lancé le ${when(data.created_at)}${data.finished_at ? ` · terminé le ${when(data.finished_at)}` : ''}`}
-        actions={<Badge tone={status.tone}>{status.label}</Badge>}
+        actions={
+          <div className="flex items-center gap-3">
+            <Badge tone={status.tone}>{status.label}</Badge>
+            {!active && <DownloadReport runId={runId} />}
+          </div>
+        }
       />
 
       <Card className="mb-6">
@@ -84,6 +91,12 @@ export function RunPage() {
           </dd>
           <dt className="text-slate-500">Modèles</dt>
           <dd>{config.models.map((m) => `${m.name} (${m.model_name})`).join(', ')}</dd>
+          {config.judge && (
+            <>
+              <dt className="text-slate-500">Juge</dt>
+              <dd>{`${config.judge.name} (${config.judge.model_name}), grilles versionnées, température 0`}</dd>
+            </>
+          )}
           <dt className="text-slate-500">Exécution</dt>
           <dd>
             {String(data.execution.max_concurrency)} en parallèle, délai {String(data.execution.timeout_seconds)} s par réponse
@@ -99,6 +112,35 @@ export function RunPage() {
         <ErrorAlert error={results.error} />
         <ResultsTable results={results.data ?? []} />
       </Card>
+    </>
+  )
+}
+
+function DownloadReport({ runId }: { runId: string }) {
+  const [error, setError] = useState<unknown>(null)
+  const [busy, setBusy] = useState(false)
+  // Le rapport demande le jeton d'accès : un simple lien ne l'enverrait pas. On le télécharge puis on l'enregistre.
+  const download = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const html = await unwrap(
+        api.GET('/api/v1/runs/{run_id}/report', { params: { path: { run_id: runId } }, parseAs: 'text' }),
+      )
+      const url = URL.createObjectURL(new Blob([html as unknown as string], { type: 'text/html' }))
+      const link = Object.assign(document.createElement('a'), { href: url, download: `evalforge-run-${runId}.html` })
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (caught) {
+      setError(caught)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <Button variant="secondary" busy={busy} onClick={() => void download()}>Rapport HTML</Button>
+      {error != null && <span className="text-sm text-rose-300">Rapport indisponible</span>}
     </>
   )
 }
@@ -140,10 +182,18 @@ function ResultsTable({ results }: { results: Schemas['ResultOut'][] }) {
                     <Badge key={metric.name} tone={metric.passed == null ? 'neutral' : metric.passed ? 'success' : 'danger'}>
                       <span title={metric.reason ?? undefined}>
                         {metric.passed == null ? '—' : metric.passed ? '✓' : '✗'} {metric.name}
+                        {metric.name.startsWith('judge_') && metric.score != null && ` ${percent(metric.score)}`}
                       </span>
                     </Badge>
                   ))}
                 </div>
+                {result.metrics
+                  .filter((metric) => metric.name.startsWith('judge_') && metric.reason)
+                  .map((metric) => (
+                    <p key={metric.name} className="mt-1 text-xs text-slate-500">
+                      Juge : {metric.reason}
+                    </p>
+                  ))}
               </td>
               <td className="py-2 text-right tabular-nums">{milliseconds(result.latency_ms)}</td>
               <td className="py-2 text-right tabular-nums text-slate-400">{result.status === 'success' ? usd(result.cost_usd) : '—'}</td>

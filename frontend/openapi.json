@@ -794,6 +794,65 @@
         }
       }
     },
+    "/api/v1/datasets/{dataset_id}/versions/import": {
+      "post": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Import Version",
+        "description": "Import d'un fichier .json ou .csv (format décrit dans evalforge_engine.datasets), mêmes règles qu'en JSON.",
+        "operationId": "import_version_api_v1_datasets__dataset_id__versions_import_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_version_api_v1_datasets__dataset_id__versions_import_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetVersionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/dataset-versions/{version_id}/cases": {
       "get": {
         "tags": [
@@ -1547,6 +1606,55 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/report": {
+      "get": {
+        "tags": [
+          "evaluations"
+        ],
+        "summary": "Run Report",
+        "description": "Rapport HTML autonome : à archiver, joindre à une revue, imprimer.",
+        "operationId": "run_report_api_v1_runs__run_id__report_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -1575,6 +1683,20 @@
   },
   "components": {
     "schemas": {
+      "Body_import_version_api_v1_datasets__dataset_id__versions_import_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_version_api_v1_datasets__dataset_id__versions_import_post"
+      },
       "DatasetCreate": {
         "properties": {
           "name": {
@@ -1755,6 +1877,18 @@
             "maxItems": 20,
             "minItems": 1,
             "title": "Metrics"
+          },
+          "judge_model_configuration_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Model Configuration Id"
           }
         },
         "type": "object",
@@ -1820,6 +1954,16 @@
             "type": "array",
             "title": "Metrics"
           },
+          "judge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExperimentModelOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -1834,6 +1978,7 @@
           "prompt_version_id",
           "models",
           "metrics",
+          "judge",
           "created_at"
         ],
         "title": "ExperimentOut"
@@ -1984,12 +2129,32 @@
           "description": {
             "type": "string",
             "title": "Description"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "requires_expected": {
+            "type": "boolean",
+            "title": "Requires Expected"
+          },
+          "requires_context": {
+            "type": "boolean",
+            "title": "Requires Context"
+          },
+          "needs_judge": {
+            "type": "boolean",
+            "title": "Needs Judge"
           }
         },
         "type": "object",
         "required": [
           "name",
-          "description"
+          "description",
+          "method",
+          "requires_expected",
+          "requires_context",
+          "needs_judge"
         ],
         "title": "MetricInfo"
       },

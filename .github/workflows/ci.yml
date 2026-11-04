@@ -42,6 +42,17 @@ jobs:
           uv run alembic -c apps/api/alembic.ini upgrade head
           uv run alembic -c apps/api/alembic.ini check
 
+      - name: Porte de qualité de la CLI (le modèle vague doit être bloqué)
+        run: |
+          uv run python scripts/fake_llm.py 8100 &
+          until curl -sf http://127.0.0.1:8100/docs > /dev/null; do sleep 1; done
+          set +e
+          uv run evalforge run examples/support-faq/evalforge.yaml --report rapport-cli.html
+          code=$?
+          set -e
+          test "$code" -eq 1 || { echo "code de sortie attendu : 1, obtenu : $code"; exit 1; }
+          grep -q "Juge (judge)" rapport-cli.html
+
       - name: Contrat OpenAPI du front à jour
         run: |
           uv run python -m evalforge_api.openapi_export frontend/openapi.json

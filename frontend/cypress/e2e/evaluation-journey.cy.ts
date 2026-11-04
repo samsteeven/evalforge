@@ -28,7 +28,7 @@ describe('Évaluation de bout en bout', () => {
     cy.findByLabelText(/^Nom du jeu/).type('FAQ support')
     cy.findByRole('button', { name: 'Créer le jeu' }).click()
     cy.findByRole('button', { name: 'Importer une version' }).click()
-    cy.findByRole('button', { name: "Charger l'exemple" }).click()
+    cy.findByLabelText(/^Fichier JSON ou CSV/).selectFile('cypress/fixtures/support-faq.csv')
     cy.findByRole('button', { name: 'Créer la version' }).click()
     cy.findByText('Version 1 créée : 5 cas.').should('be.visible')
     cy.findByText('v1').should('be.visible')
@@ -40,11 +40,12 @@ describe('Évaluation de bout en bout', () => {
     cy.findByRole('button', { name: 'Enregistrer la version' }).click()
     cy.findByText('Version 1 enregistrée.').should('be.visible')
 
-    // Deux modèles, un seul avec un prix
+    // Deux modèles comparés (un seul avec un prix) et un modèle juge
     cy.findByRole('tab', { name: 'Modèles' }).click()
     const models: [string, string, boolean][] = [
       ['Modèle sourcé', 'grounded', true],
       ['Modèle vague', 'vague', false],
+      ['Juge', 'judge', false],
     ]
     for (const [name, model, priced] of models) {
       cy.findByLabelText(/^Nom affiché/).clear().type(name)
@@ -67,7 +68,10 @@ describe('Évaluation de bout en bout', () => {
     cy.findByRole('checkbox', { name: /Modèle vague/ }).check()
     cy.findByRole('checkbox', { name: /^exact_match/ }).check()
     cy.findByRole('checkbox', { name: /^contains_expected/ }).check()
+    cy.findByRole('checkbox', { name: /^judge_correctness/ }).check()
+    cy.findByLabelText(/^Modèle juge/).select('Juge (judge)')
     cy.findByRole('button', { name: "Créer l'expérience" }).click()
+    cy.findByText(/juge : Juge/).should('be.visible')
     cy.findByRole('button', { name: 'Lancer le run' }).click()
 
     // Résultats et comparaison
@@ -79,8 +83,21 @@ describe('Évaluation de bout en bout', () => {
       cy.findByRole('row', { name: /Modèle vague/ }).should('contain.text', 'inconnu')
       cy.findByRole('row', { name: /Modèle sourcé/ }).should('not.contain.text', 'inconnu')
     })
+    cy.findByRole('meter', { name: 'judge_correctness Modèle sourcé' }).should('have.attr', 'aria-valuenow', '100')
+    cy.findByRole('meter', { name: 'judge_correctness Modèle vague' }).should('have.attr', 'aria-valuenow', '0')
+    cy.findAllByText(/^Juge : La réponse reprend l'information attendue\./).should('have.length', 5)
     cy.findAllByTestId('result-row').should('have.length', 10)
     shoot('run-comparaison')
+
+    // Rapport HTML téléchargé avec le jeton d'accès, puis relu
+    cy.findByRole('button', { name: 'Rapport HTML' }).click()
+    cy.location('pathname').then((path) => {
+      const runId = path.split('/').pop()
+      cy.readFile(`cypress/downloads/evalforge-run-${runId}.html`, { timeout: 15_000 })
+        .should('contain', "Run d&#39;évaluation : Sourcé contre vague")
+        .and('contain', 'Juge (judge)')
+        .and('contain', 'inconnu')
+    })
   })
 
   it('sans session, renvoie vers la connexion', () => {

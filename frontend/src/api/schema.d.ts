@@ -235,6 +235,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/datasets/{dataset_id}/versions/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Version
+         * @description Import d'un fichier .json ou .csv (format décrit dans evalforge_engine.datasets), mêmes règles qu'en JSON.
+         */
+        post: operations["import_version_api_v1_datasets__dataset_id__versions_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dataset-versions/{version_id}/cases": {
         parameters: {
             query?: never;
@@ -415,6 +435,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Run Report
+         * @description Rapport HTML autonome : à archiver, joindre à une revue, imprimer.
+         */
+        get: operations["run_report_api_v1_runs__run_id__report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -436,6 +476,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Body_import_version_api_v1_datasets__dataset_id__versions_import_post */
+        Body_import_version_api_v1_datasets__dataset_id__versions_import_post: {
+            /** File */
+            file: string;
+        };
         /** DatasetCreate */
         DatasetCreate: {
             /** Name */
@@ -520,6 +565,8 @@ export interface components {
             model_configuration_ids: string[];
             /** Metrics */
             metrics: string[];
+            /** Judge Model Configuration Id */
+            judge_model_configuration_id?: string | null;
         };
         /** ExperimentModelOut */
         ExperimentModelOut: {
@@ -554,6 +601,7 @@ export interface components {
             models: components["schemas"]["ExperimentModelOut"][];
             /** Metrics */
             metrics: string[];
+            judge: components["schemas"]["ExperimentModelOut"] | null;
             /**
              * Created At
              * Format: date-time
@@ -632,6 +680,14 @@ export interface components {
             name: string;
             /** Description */
             description: string;
+            /** Method */
+            method: string;
+            /** Requires Expected */
+            requires_expected: boolean;
+            /** Requires Context */
+            requires_context: boolean;
+            /** Needs Judge */
+            needs_judge: boolean;
         };
         /** MetricOut */
         MetricOut: {
@@ -1607,6 +1663,41 @@ export interface operations {
             };
         };
     };
+    import_version_api_v1_datasets__dataset_id__versions_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_version_api_v1_datasets__dataset_id__versions_import_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetVersionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_cases_api_v1_dataset_versions__version_id__cases_get: {
         parameters: {
             query?: {
@@ -2039,6 +2130,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunMetrics"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_report_api_v1_runs__run_id__report_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
                 };
             };
             /** @description Validation Error */

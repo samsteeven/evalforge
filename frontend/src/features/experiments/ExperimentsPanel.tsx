@@ -92,6 +92,7 @@ function ExperimentCard({
       </div>
       <p className="mt-2 text-sm text-slate-400">
         {experiment.models.map((m) => m.name).join(' vs ')} · {experiment.metrics.join(', ')}
+        {experiment.judge && <> · juge : {experiment.judge.name}</>}
       </p>
       {canEdit && <LaunchRun experimentId={experiment.id} versions={versions} />}
       <div className="mt-4">
@@ -179,8 +180,10 @@ function CreateExperiment({ projectId, prompts }: { projectId: string; prompts: 
   const [promptId, setPromptId] = useState('')
   const [modelIds, setModelIds] = useState<string[]>([])
   const [metricNames, setMetricNames] = useState<string[]>([])
+  const [judgeId, setJudgeId] = useState('')
   const latestPrompt = prompts.at(-1)?.id ?? ''
   const toggle = (list: string[], value: string) => (list.includes(value) ? list.filter((v) => v !== value) : [...list, value])
+  const judgeNeeded = metricNames.some((name) => metrics.data?.find((m) => m.name === name)?.needs_judge)
 
   const create = useMutation({
     mutationFn: () =>
@@ -192,6 +195,7 @@ function CreateExperiment({ projectId, prompts }: { projectId: string; prompts: 
             prompt_version_id: promptId || latestPrompt,
             model_configuration_ids: modelIds,
             metrics: metricNames,
+            judge_model_configuration_id: judgeNeeded ? judgeId || null : null,
           },
         }),
       ),
@@ -242,13 +246,36 @@ function CreateExperiment({ projectId, prompts }: { projectId: string; prompts: 
               />
               <span>
                 <code>{metric.name}</code>
+                {metric.needs_judge && (
+                  <span className="ml-2">
+                    <Badge tone="warning">juge LLM</Badge>
+                  </span>
+                )}
                 <span className="block text-xs text-slate-500">{metric.description}</span>
               </span>
             </label>
           ))}
         </fieldset>
+        {judgeNeeded && (
+          <Field
+            label="Modèle juge"
+            hint="Il note chaque réponse selon une grille versionnée ; ses notes sont des avis justifiés, pas une vérité."
+          >
+            <Select required value={judgeId} onChange={(e) => setJudgeId(e.target.value)}>
+              <option value="">Choisir un modèle</option>
+              {models.data?.map((model) => (
+                <option key={model.id} value={model.id}>{`${model.name} (${model.model_name})`}</option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <ErrorAlert error={create.error} />
-        <Button type="submit" busy={create.isPending} className="w-full" disabled={!modelIds.length || !metricNames.length}>
+        <Button
+          type="submit"
+          busy={create.isPending}
+          className="w-full"
+          disabled={!modelIds.length || !metricNames.length || (judgeNeeded && !judgeId)}
+        >
           Créer l'expérience
         </Button>
       </form>
