@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from evalforge_api.core.database import SessionDep
-from evalforge_api.core.tenancy import WorkspaceDep, not_found
+from evalforge_api.core.tenancy import EditorDep, WorkspaceDep, not_found
 from evalforge_api.modules.datasets.models import Dataset, DatasetVersion, TestCase
 from evalforge_api.modules.projects.routes import get_project
 
@@ -108,7 +108,7 @@ async def get_dataset_version(session: AsyncSession, workspace_id: uuid.UUID, ve
 
 @router.post("/projects/{project_id}/datasets", status_code=201, response_model=DatasetOut)
 async def create_dataset(
-    project_id: uuid.UUID, body: DatasetCreate, workspace_id: WorkspaceDep, session: SessionDep
+    project_id: uuid.UUID, body: DatasetCreate, workspace_id: EditorDep, session: SessionDep
 ) -> Dataset:
     await get_project(session, workspace_id, project_id)
     dataset = Dataset(workspace_id=workspace_id, project_id=project_id, name=body.name, description=body.description)
@@ -131,7 +131,7 @@ async def create_version(
     dataset_id: uuid.UUID,
     body: DatasetVersionCreate,
     response: Response,
-    workspace_id: WorkspaceDep,
+    workspace_id: EditorDep,
     session: SessionDep,
 ) -> DatasetVersion:
     """Crée une version immuable. Un contenu identique à la dernière version la renvoie au lieu d'en créer une."""

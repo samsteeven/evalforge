@@ -4,10 +4,11 @@ from evalforge_api.core.database import Base
 from evalforge_api.modules.datasets.models import Dataset, DatasetVersion, TestCase
 from evalforge_api.modules.evaluations.models import EvaluationResult, EvaluationRun, MetricResult
 from evalforge_api.modules.experiments.models import Experiment, ExperimentModel
+from evalforge_api.modules.identity.models import RefreshToken, User
 from evalforge_api.modules.projects.models import AIProject
 from evalforge_api.modules.prompts.models import PromptVersion
 from evalforge_api.modules.providers.models import ModelConfiguration
-from evalforge_api.modules.workspaces.models import Workspace
+from evalforge_api.modules.workspaces.models import Workspace, WorkspaceMember
 
 __all__ = [
     "AIProject",
@@ -21,6 +22,9 @@ __all__ = [
     "MetricResult",
     "ModelConfiguration",
     "PromptVersion",
+    "RefreshToken",
     "TestCase",
+    "User",
     "Workspace",
+    "WorkspaceMember",
 ]

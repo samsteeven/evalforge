@@ -28,11 +28,37 @@ def cases() -> list[dict]:
     ]
 
 
-async def create_workspace(client: httpx.AsyncClient) -> dict[str, str]:
-    slug = f"ws-{uuid.uuid4().hex[:10]}"
-    response = await client.post("/workspaces", json={"name": "Atelier Nova", "slug": slug})
+PASSWORD = "mot-de-passe-de-test"
+
+
+def new_email() -> str:
+    return f"user-{uuid.uuid4().hex[:10]}@atelier-nova.example"
+
+
+async def register(client: httpx.AsyncClient, email: str | None = None) -> dict:
+    """Inscrit un compte ; renvoie la session, l'e-mail et les en-têtes prêts à l'emploi pour son espace."""
+    email = email or new_email()
+    response = await client.post(
+        "/auth/register", json={"email": email, "password": PASSWORD, "workspace_name": "Atelier Nova"}
+    )
     assert response.status_code == 201, response.text
-    return {"X-Workspace-Id": response.json()["id"]}
+    session = response.json()
+    auth = {"Authorization": f"Bearer {session['access_token']}"}
+    me = (await client.get("/auth/me", headers=auth)).json()
+    workspace_id = me["workspaces"][0]["workspace_id"]
+    return {"email": email, "session": session, "auth": auth, "headers": {**auth, "X-Workspace-Id": workspace_id}}
+
+
+async def create_workspace(client: httpx.AsyncClient) -> dict[str, str]:
+    """Un nouveau compte et son espace : chaque test a ses propres données."""
+    return (await register(client))["headers"]
+
+
+async def join(client: httpx.AsyncClient, owner_headers: dict, role: str) -> dict[str, str]:
+    """Un autre compte, ajouté à l'espace du propriétaire avec le rôle donné ; renvoie ses en-têtes."""
+    other = await register(client)
+    await post(client, "/workspaces/current/members", owner_headers, {"email": other["email"], "role": role})
+    return {**other["auth"], "X-Workspace-Id": owner_headers["X-Workspace-Id"]}
 
 
 async def post(client: httpx.AsyncClient, url: str, headers: dict, body: dict, status: int = 201) -> dict:

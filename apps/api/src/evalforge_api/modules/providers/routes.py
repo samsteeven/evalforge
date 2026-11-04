@@ -8,9 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from evalforge_api.core.database import SessionDep
-from evalforge_api.core.tenancy import WorkspaceDep
+from evalforge_api.core.tenancy import AdminDep, WorkspaceDep
 from evalforge_api.modules.projects.routes import get_project
 from evalforge_api.modules.providers.models import ModelConfiguration
+from evalforge_llm.network import UnsafeDestinationError, check_url
 
 router = APIRouter(tags=["providers"])
 
@@ -68,10 +69,14 @@ async def create_model_configuration(
     project_id: uuid.UUID,
     body: ModelConfigurationCreate,
     request: Request,
-    workspace_id: WorkspaceDep,
+    workspace_id: AdminDep,
     session: SessionDep,
 ) -> ModelConfigurationOut:
     await get_project(session, workspace_id, project_id)
+    try:
+        check_url(str(body.base_url), allow_private=request.app.state.settings.allow_private_provider_urls)
+    except UnsafeDestinationError as error:
+        raise HTTPException(422, f"Adresse de fournisseur refusée : {error}") from None
     api_key = body.api_key.get_secret_value() if body.api_key else None
     config = ModelConfiguration(
         workspace_id=workspace_id,

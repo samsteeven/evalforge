@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from evalforge_api.core.database import SessionDep
-from evalforge_api.core.tenancy import WorkspaceDep, not_found
+from evalforge_api.core.tenancy import EditorDep, WorkspaceDep, not_found
 from evalforge_api.modules.experiments.models import Experiment, ExperimentModel
 from evalforge_api.modules.projects.routes import get_project
 from evalforge_api.modules.prompts.models import PromptVersion
@@ -86,9 +86,25 @@ async def to_out(session: AsyncSession, experiment: Experiment) -> ExperimentOut
     )
 
 
+class MetricInfo(BaseModel):
+    name: str
+    description: str
+
+
+METRIC_DESCRIPTIONS = {
+    "exact_match": "Réponse identique à la réponse attendue (casse, espaces et ponctuation finale ignorés)",
+    "contains_expected": "La réponse attendue figure dans la réponse produite",
+}
+
+
+@router.get("/metrics", response_model=list[MetricInfo])
+async def list_metrics() -> list[MetricInfo]:
+    return [MetricInfo(name=name, description=METRIC_DESCRIPTIONS.get(name, "")) for name in available_metrics()]
+
+
 @router.post("/projects/{project_id}/experiments", status_code=201, response_model=ExperimentOut)
 async def create_experiment(
-    project_id: uuid.UUID, body: ExperimentCreate, workspace_id: WorkspaceDep, session: SessionDep
+    project_id: uuid.UUID, body: ExperimentCreate, workspace_id: EditorDep, session: SessionDep
 ) -> ExperimentOut:
     await get_project(session, workspace_id, project_id)
     prompt = await session.scalar(

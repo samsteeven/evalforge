@@ -9,6 +9,7 @@ import httpx
 
 from evalforge_llm.contracts import Capabilities, LLMRequest, LLMResponse
 from evalforge_llm.errors import ProviderError, ProviderErrorKind
+from evalforge_llm.network import UnsafeDestinationError
 
 Sleep = Callable[[float], Awaitable[None]]
 
@@ -74,6 +75,8 @@ class OpenAICompatibleProvider:
             response = await self._client.post(
                 f"{self._base_url}/chat/completions", json=body, headers=headers, timeout=self._timeout
             )
+        except UnsafeDestinationError as error:  # jamais rejouée : l'adresse ne deviendra pas publique
+            raise ProviderError(ProviderErrorKind.FORBIDDEN_DESTINATION, str(error)) from None
         except httpx.TimeoutException:
             raise ProviderError(ProviderErrorKind.TIMEOUT, f"pas de réponse en {self._timeout:g} s") from None
         except httpx.TransportError as error:

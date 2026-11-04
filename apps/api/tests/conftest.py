@@ -50,7 +50,12 @@ def migrate(url: str) -> None:
 
 @pytest.fixture(scope="session")
 def settings(database_url: str) -> Settings:
-    return Settings(database_url=database_url, secret_key=Fernet.generate_key().decode())
+    return Settings(
+        database_url=database_url,
+        secret_key=Fernet.generate_key().decode(),
+        jwt_secret_key="cle-de-test-pour-les-jetons-d-acces-0123456789",
+        cookie_secure=False,  # le client de test parle http
+    )
 
 
 class FakeLLM:
@@ -99,8 +104,8 @@ async def app_factory(settings: Settings, fake_llm: FakeLLM):
     llm_client = httpx.AsyncClient(transport=httpx.MockTransport(fake_llm.handle))
     factory = http_provider_factory(llm_client, timeout_seconds=5, backoff_seconds=0)
 
-    def start():
-        app = create_app(settings, provider_factory=factory)
+    def start(custom_settings: Settings | None = None):
+        app = create_app(custom_settings or settings, provider_factory=factory)
 
         class Running:
             async def __aenter__(self) -> httpx.AsyncClient:

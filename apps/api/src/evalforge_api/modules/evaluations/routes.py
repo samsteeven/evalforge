@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from evalforge_api.core.database import SessionDep
-from evalforge_api.core.tenancy import WorkspaceDep, not_found
+from evalforge_api.core.tenancy import EditorDep, WorkspaceDep, not_found
 from evalforge_api.modules.datasets.models import Dataset, TestCase
 from evalforge_api.modules.datasets.routes import get_dataset_version
 from evalforge_api.modules.evaluations.models import EvaluationResult, EvaluationRun, MetricResult, RunStatus
@@ -101,7 +101,7 @@ async def get_run(session: AsyncSession, workspace_id: uuid.UUID, run_id: uuid.U
 
 @router.post("/experiments/{experiment_id}/runs", status_code=202, response_model=RunCreated)
 async def create_run(
-    experiment_id: uuid.UUID, body: RunCreate, request: Request, workspace_id: WorkspaceDep, session: SessionDep
+    experiment_id: uuid.UUID, body: RunCreate, request: Request, workspace_id: EditorDep, session: SessionDep
 ) -> RunCreated:
     experiment = await get_experiment(session, workspace_id, experiment_id)
     version = await get_dataset_version(session, workspace_id, body.dataset_version_id)
@@ -153,6 +153,30 @@ async def create_run(
     await session.commit()
     request.app.state.scheduler.schedule(run.id)
     return RunCreated(run_id=run.id, status=run.status, created_at=run.created_at)
+
+
+class RunSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    status: str
+    dataset_version_id: uuid.UUID
+    total_items: int
+    completed_items: int
+    created_at: datetime
+    finished_at: datetime | None
+
+
+@router.get("/experiments/{experiment_id}/runs", response_model=list[RunSummary])
+async def list_runs(experiment_id: uuid.UUID, workspace_id: WorkspaceDep, session: SessionDep) -> list[EvaluationRun]:
+    await get_experiment(session, workspace_id, experiment_id)
+    rows = await session.scalars(
+        select(EvaluationRun)
+        .where(EvaluationRun.experiment_id == experiment_id)
+        .order_by(EvaluationRun.created_at.desc())
+        .limit(50)
+    )
+    return list(rows)
 
 
 @router.get("/runs/{run_id}", response_model=RunOut)

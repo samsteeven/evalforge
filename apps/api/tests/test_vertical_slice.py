@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpers import QUESTIONS, TEMPLATE, cases, create_workspace, post, seed, start_run, wait_for_run
+from helpers import QUESTIONS, TEMPLATE, cases, create_workspace, post, register, seed, start_run, wait_for_run
 
 
 async def test_une_experience_compare_deux_modeles_sur_cinq_questions(client, fake_llm):
@@ -154,7 +154,8 @@ async def test_la_cle_d_api_est_chiffree_et_jamais_renvoyee(client, settings, fa
 
 @pytest.mark.parametrize("header", [None, "00000000-0000-0000-0000-000000000000"])
 async def test_un_espace_de_travail_absent_ou_inconnu_est_refuse(client, header):
-    headers = {"X-Workspace-Id": header} if header else {}
+    auth = (await register(client))["auth"]
+    headers = {**auth, "X-Workspace-Id": header} if header else auth
 
     response = await client.get("/projects", headers=headers)
 

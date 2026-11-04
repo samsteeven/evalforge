@@ -9,6 +9,7 @@ class ProviderErrorKind(StrEnum):
     SERVER = "server"
     NETWORK = "network"
     INVALID_RESPONSE = "invalid_response"
+    FORBIDDEN_DESTINATION = "forbidden_destination"
 
 
 _RETRYABLE = {

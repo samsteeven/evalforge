@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from evalforge_api.core.database import SessionDep
-from evalforge_api.core.tenancy import WorkspaceDep
+from evalforge_api.core.tenancy import EditorDep, WorkspaceDep
 from evalforge_api.modules.projects.routes import get_project
 from evalforge_api.modules.prompts.models import PromptVersion
 from evalforge_engine.templating import variables
@@ -45,7 +45,7 @@ def to_out(prompt: PromptVersion) -> PromptOut:
 
 @router.post("/projects/{project_id}/prompts", status_code=201, response_model=PromptOut)
 async def create_prompt_version(
-    project_id: uuid.UUID, body: PromptCreate, response: Response, workspace_id: WorkspaceDep, session: SessionDep
+    project_id: uuid.UUID, body: PromptCreate, response: Response, workspace_id: EditorDep, session: SessionDep
 ) -> PromptOut:
     """Chaque modification crée une nouvelle version ; un contenu identique renvoie la dernière."""
     await get_project(session, workspace_id, project_id)

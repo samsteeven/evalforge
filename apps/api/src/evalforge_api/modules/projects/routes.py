@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from evalforge_api.core.database import SessionDep
-from evalforge_api.core.tenancy import WorkspaceDep, not_found
+from evalforge_api.core.tenancy import EditorDep, WorkspaceDep, not_found
 from evalforge_api.modules.projects.models import AIProject
 
 router = APIRouter(tags=["projects"])
@@ -39,7 +39,7 @@ async def get_project(session: AsyncSession, workspace_id: uuid.UUID, project_id
 
 
 @router.post("/projects", status_code=201, response_model=ProjectOut)
-async def create_project(body: ProjectCreate, workspace_id: WorkspaceDep, session: SessionDep) -> AIProject:
+async def create_project(body: ProjectCreate, workspace_id: EditorDep, session: SessionDep) -> AIProject:
     project = AIProject(workspace_id=workspace_id, name=body.name, type=body.type)
     session.add(project)
     try:
