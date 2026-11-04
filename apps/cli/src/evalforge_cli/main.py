@@ -21,7 +21,8 @@ from evalforge_engine.evaluators import METRICS
 from evalforge_engine.reporting import render_report
 
 app = typer.Typer(help="EvalForge : évaluer des applications LLM en local ou en CI.", no_args_is_help=True)
-console = Console()
+# Pas de retour à la ligne forcé dans les messages : un chemin coupé ne se copie plus depuis un journal de CI.
+console = Console(soft_wrap=True)
 
 
 def _percent(value: float | None) -> str:
