@@ -103,8 +103,8 @@ Après une modification de l'API : `uv run python -m evalforge_api.openapi_expor
 | 2 | Interface React + TypeScript, comptes, sessions et rôles, protection SSRF, tests Cypress | **fait** |
 | 3 | Juge LLM, adaptateurs Ragas et DeepEval, import CSV, CLI, rapport HTML | à faire |
 | 4 | Outbox, RabbitMQ (aio-pika), workers, reprises et file morte ; baseline et détection de régression | à faire |
-| 5 | Traces et trajectoires d'agents, évaluation des appels d'outils, webhooks et contrôle qualité en CI | à faire |
-| 6 | Tests de prompt injection, OpenTelemetry, charge, Terraform et AWS (ECS Fargate) | à faire |
+| 5 | Un agent de support construit pour l'occasion (outils, appels de fonctions), évalué par EvalForge : trajectoires, choix des outils et de leurs arguments ; webhooks et contrôle qualité en CI | à faire |
+| 6 | Tests de prompt injection, OpenTelemetry, charge ; images Docker de l'API et du front, manifestes Kubernetes compatibles OpenShift (conteneurs non root, testés en CI sur un cluster local), playbook Ansible de déploiement, Terraform et AWS (ECS Fargate) | à faire |
 
 ## Structure
 

@@ -101,6 +101,12 @@ OpenTelemetry vers Prometheus, Tempo, Loki et Grafana. Mesurer EvalForge lui-mê
 
 Local : Docker Compose (API, workers, PostgreSQL, RabbitMQ, Redis, MinIO, pile d'observabilité). AWS : CloudFront et S3 pour le front, ALB, ECS Fargate (API et workers), RDS PostgreSQL, Amazon MQ, ElastiCache, S3, Secrets Manager, KMS, CloudWatch ; Terraform par modules et environnements. ECS plutôt que Kubernetes : moins d'exploitation pour ce périmètre.
 
+Ajout au blueprint (2026-11-05) : les mêmes images se déploient aussi sur un cloud privé. Des manifestes Kubernetes compatibles OpenShift (conteneurs non root, utilisateur arbitraire, aucun volume sensible), vérifiés en CI sur un cluster local, et un playbook Ansible qui installe la plateforme sur une machine virtuelle. Terraform crée l'infrastructure, Ansible configure les machines.
+
+## Agent de démonstration
+
+Ajout au blueprint (2026-11-05) : EvalForge évalue des agents, il en contient aussi un, construit pour l'occasion. Un agent de support client avec quelques outils (recherche de commande, politique de remboursement, création de ticket), appelés par le modèle, et des traces de chaque étape. Il sert de cible aux évaluations de trajectoire (bon outil, bons arguments, étapes inutiles) et montre la construction d'un agent, pas seulement sa mesure.
+
 ## Politique qualité (exemple)
 
 ```yaml
