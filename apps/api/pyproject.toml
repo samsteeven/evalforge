@@ -1,0 +1,28 @@
+[project]
+name = "evalforge-api"
+version = "0.1.0"
+description = "API EvalForge (FastAPI)"
+requires-python = ">=3.13"
+dependencies = [
+    "evalforge-engine",
+    "evalforge-llm-gateway",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "pydantic-settings>=2.7",
+    "cryptography>=44",
+    "httpx>=0.28",
+]
+
+[tool.uv.sources]
+evalforge-engine = { workspace = true }
+evalforge-llm-gateway = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "evalforge_api"

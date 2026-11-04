@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Dépendances
+        run: uv sync --locked
+
+      - name: Lint et format
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Tests (PostgreSQL réel via Testcontainers)
+        run: uv run pytest -q
+
+      - name: Migrations à jour avec les modèles
+        run: |
+          docker run -d --name pg --tmpfs /var/lib/postgresql:rw -e POSTGRES_USER=evalforge -e POSTGRES_PASSWORD=evalforge \
+            -e POSTGRES_DB=evalforge -p 5435:5432 postgres:18-alpine
+          until docker exec pg pg_isready -U evalforge -d evalforge; do sleep 1; done
+          uv run alembic -c apps/api/alembic.ini upgrade head
+          uv run alembic -c apps/api/alembic.ini check

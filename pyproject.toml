@@ -1,0 +1,50 @@
+[project]
+name = "evalforge"
+version = "0.1.0"
+description = "Plateforme d'évaluation d'applications LLM, RAG et agents"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = ["evalforge-api", "evalforge-engine", "evalforge-llm-gateway"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["apps/api", "packages/evaluation_engine", "packages/llm_gateway"]
+
+[tool.uv.sources]
+evalforge-api = { workspace = true }
+evalforge-engine = { workspace = true }
+evalforge-llm-gateway = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "testcontainers[postgres]>=4.9",
+    "ruff>=0.9",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--import-mode=importlib"
+pythonpath = ["apps/api/tests"]
+testpaths = ["packages/llm_gateway/tests", "packages/evaluation_engine/tests", "apps/api/tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "S", "RUF", "SIM"]
+# RUF001-003 : guillemets et apostrophes typographiques des messages en français.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["evalforge_api", "evalforge_engine", "evalforge_llm", "helpers"]
+
+[tool.ruff.lint.per-file-ignores]
+# Les tests attendent l'état d'un run en interrogeant l'API, comme le ferait un client.
+"**/tests/**" = ["S", "ASYNC109", "ASYNC110"]
+"**/migrations/**" = ["E501"]
