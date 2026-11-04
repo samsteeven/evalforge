@@ -4,19 +4,22 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from evalforge_api.core.database import SessionDep
+from evalforge_api.core.database import SessionDep, utcnow
 from evalforge_api.core.tenancy import EditorDep, WorkspaceDep, not_found
 from evalforge_api.modules.datasets.models import Dataset, TestCase
 from evalforge_api.modules.datasets.routes import get_dataset_version
 from evalforge_api.modules.evaluations.models import EvaluationResult, EvaluationRun, MetricResult, RunStatus
+from evalforge_api.modules.experiments.models import Experiment
 from evalforge_api.modules.experiments.routes import experiment_models, get_experiment
 from evalforge_api.modules.prompts.models import PromptVersion
 from evalforge_api.modules.providers.models import ModelConfiguration
-from evalforge_engine.scoring import MetricSummary, PerformanceSummary, summarize_metric, summarize_performance
+from evalforge_engine.reporting import Report, ReportConfig, ReportModel, render_report
+from evalforge_engine.scoring import MetricRecord, MetricSummary, PerformanceSummary, ResultRecord, summarize_by_model
 
 router = APIRouter(tags=["evaluations"])
 
@@ -99,6 +102,19 @@ async def get_run(session: AsyncSession, workspace_id: uuid.UUID, run_id: uuid.U
     return run
 
 
+def snapshot(config: ModelConfiguration) -> dict[str, Any]:
+    """Ce qui sera réellement appelé, figé dans le run. Jamais la clé d'API."""
+    return {
+        "id": str(config.id),
+        "name": config.name,
+        "provider_kind": config.provider_kind,
+        "base_url": config.base_url,
+        "model_name": config.model_name,
+        "parameters": config.parameters,
+        "pricing": config.pricing,
+    }
+
+
 @router.post("/experiments/{experiment_id}/runs", status_code=202, response_model=RunCreated)
 async def create_run(
     experiment_id: uuid.UUID, body: RunCreate, request: Request, workspace_id: EditorDep, session: SessionDep
@@ -110,12 +126,12 @@ async def create_run(
         raise HTTPException(422, "Ce jeu de données n'appartient pas au projet de l'expérience")
     prompt = await session.get(PromptVersion, experiment.prompt_version_id)
     models = await experiment_models(session, experiment.id)
+    wanted = [m.model_configuration_id for m in models] + [experiment.judge_model_configuration_id]
     configs = {
         config.id: config
-        for config in await session.scalars(
-            select(ModelConfiguration).where(ModelConfiguration.id.in_([m.model_configuration_id for m in models]))
-        )
+        for config in await session.scalars(select(ModelConfiguration).where(ModelConfiguration.id.in_(wanted)))
     }
+    judge = configs.get(experiment.judge_model_configuration_id) if experiment.judge_model_configuration_id else None
 
     run = EvaluationRun(
         workspace_id=workspace_id,
@@ -132,19 +148,9 @@ async def create_run(
                 "template": prompt.template,
                 "system": prompt.system,
             },
-            "models": [
-                {
-                    "id": str(config.id),
-                    "name": config.name,
-                    "provider_kind": config.provider_kind,
-                    "base_url": config.base_url,
-                    "model_name": config.model_name,
-                    "parameters": config.parameters,
-                    "pricing": config.pricing,
-                }
-                for config in (configs[m.model_configuration_id] for m in models)
-            ],
+            "models": [snapshot(configs[m.model_configuration_id]) for m in models],
             "metrics": experiment.metrics,
+            "judge": snapshot(judge) if judge else None,
         },
         total_items=version.case_count * len(models),
         completed_items=0,
@@ -241,35 +247,89 @@ async def list_results(
     ]
 
 
+async def _records(session: AsyncSession, run: EvaluationRun) -> list[ResultRecord]:
+    """Toutes les réponses du run, dans l'ordre des cas puis des modèles, sous la forme commune du moteur."""
+    names = _model_names(run)
+    order = {model_id: position for position, model_id in enumerate(names)}
+    rows = (
+        await session.execute(
+            select(EvaluationResult, TestCase.external_id, TestCase.position)
+            .join(TestCase, TestCase.id == EvaluationResult.test_case_id)
+            .where(EvaluationResult.run_id == run.id)
+        )
+    ).all()
+    rows.sort(key=lambda row: (row.position, order.get(row.EvaluationResult.model_configuration_id, 0)))
+    metrics = await _metrics_by_result(session, [row.EvaluationResult.id for row in rows])
+    return [
+        ResultRecord(
+            case_id=external_id,
+            model=names.get(result.model_configuration_id, "?"),
+            status=result.status,
+            output=result.actual_output,
+            error=result.error,
+            latency_ms=result.latency_ms,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            cost_usd=result.cost_usd,
+            metrics=[
+                MetricRecord(name=m.name, score=m.score, passed=m.passed, reason=m.reason) for m in metrics[result.id]
+            ],
+        )
+        for result, external_id, _ in rows
+    ]
+
+
 @router.get("/runs/{run_id}/metrics", response_model=RunMetrics)
 async def run_metrics(run_id: uuid.UUID, workspace_id: WorkspaceDep, session: SessionDep) -> RunMetrics:
     """Agrégats par modèle : qualité (par métrique), puis performance, tokens et coût, sans les mélanger."""
     run = await get_run(session, workspace_id, run_id)
-    results = list(await session.scalars(select(EvaluationResult).where(EvaluationResult.run_id == run.id)))
-    metrics = await _metrics_by_result(session, [result.id for result in results])
-
-    summaries = []
-    for model_id, name in _model_names(run).items():
-        own = [result for result in results if result.model_configuration_id == model_id]
-        succeeded = [result for result in own if result.status == "success"]
-        scores: dict[str, list[tuple[float | None, bool | None]]] = {
-            metric: [] for metric in run.configuration["metrics"]
-        }
-        for result in succeeded:
-            for metric in metrics[result.id]:
-                scores.setdefault(metric.name, []).append((metric.score, metric.passed))
-        summaries.append(
+    names = _model_names(run)
+    ids = {name: model_id for model_id, name in names.items()}  # noms uniques dans un projet
+    reports = summarize_by_model(list(names.values()), run.configuration["metrics"], await _records(session, run))
+    return RunMetrics(
+        run_id=run.id,
+        status=run.status,
+        models=[
             ModelSummary(
-                model_configuration_id=model_id,
-                model=name,
-                performance=summarize_performance(
-                    [result.status for result in own],
-                    [result.latency_ms for result in succeeded if result.latency_ms is not None],
-                    [result.input_tokens for result in succeeded],
-                    [result.output_tokens for result in succeeded],
-                    [result.cost_usd for result in succeeded],
-                ),
-                metrics=[summarize_metric(metric, values) for metric, values in scores.items()],
+                model_configuration_id=ids[r.model], model=r.model, performance=r.performance, metrics=r.metrics
             )
-        )
-    return RunMetrics(run_id=run.id, status=run.status, models=summaries)
+            for r in reports
+        ],
+    )
+
+
+@router.get("/runs/{run_id}/report", response_class=HTMLResponse)
+async def run_report(run_id: uuid.UUID, workspace_id: WorkspaceDep, session: SessionDep) -> HTMLResponse:
+    """Rapport HTML autonome : à archiver, joindre à une revue, imprimer."""
+    run = await get_run(session, workspace_id, run_id)
+    experiment = await session.get(Experiment, run.experiment_id)
+    config = run.configuration
+    records = await _records(session, run)
+    names = list(_model_names(run).values())
+    judge = config.get("judge")
+    report = Report(
+        title=f"Run d'évaluation : {experiment.name if experiment else run.id}",
+        generated_at=utcnow(),
+        status=run.status,
+        config=ReportConfig(
+            prompt_name=config["prompt"]["name"],
+            prompt_version=config["prompt"]["version"],
+            template=config["prompt"]["template"],
+            system=config["prompt"]["system"],
+            dataset_label=f"version {config['dataset_version']['version']}",
+            dataset_checksum=config["dataset_version"]["checksum"],
+            models=[
+                ReportModel(name=m["name"], model_name=m["model_name"], provider=m["provider_kind"])
+                for m in config["models"]
+            ],
+            metrics=config["metrics"],
+            judge=f"{judge['name']} ({judge['model_name']})" if judge else None,
+            execution=run.execution,
+        ),
+        models=summarize_by_model(names, config["metrics"], records),
+        results=records,
+    )
+    return HTMLResponse(
+        render_report(report),
+        headers={"Content-Disposition": f'inline; filename="evalforge-run-{run.id}.html"'},
+    )

@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from evalforge_engine import CaseStatus, EvaluationCase, EvaluationInput, MetricOutput, TargetOutput, WorkItem
-from evalforge_engine.evaluators import ContainsExpected, ExactMatch, available_metrics, get_evaluators
+from evalforge_engine.evaluators import ContainsExpected, ExactMatch, available_metrics, build_evaluators
 from evalforge_engine.orchestrator import evaluate_cases
 from evalforge_engine.scoring import cost_usd, percentile, summarize_metric, summarize_performance
 from evalforge_engine.templating import TemplateError, render, variables
@@ -68,9 +68,9 @@ async def test_sans_reponse_attendue_la_metrique_est_indisponible_pas_nulle():
 
 
 def test_registre_des_metriques():
-    assert available_metrics() == ["contains_expected", "exact_match"]
+    assert available_metrics() == ["contains_expected", "exact_match", "judge_correctness", "judge_faithfulness"]
     with pytest.raises(KeyError, match="faithfulness"):
-        get_evaluators(["exact_match", "faithfulness"])
+        build_evaluators(["exact_match", "faithfulness"])
 
 
 # --- Orchestration -----------------------------------------------------------------------------------------------

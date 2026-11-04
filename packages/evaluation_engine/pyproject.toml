@@ -3,7 +3,11 @@ name = "evalforge-engine"
 version = "0.1.0"
 description = "Moteur d'évaluation : contrats, évaluateurs, orchestration et agrégats"
 requires-python = ">=3.13"
-dependencies = ["pydantic>=2.10", "evalforge-llm-gateway"]
+dependencies = [
+    "pydantic>=2.10",
+    "evalforge-llm-gateway",
+    "jinja2>=3.1",
+]
 
 [tool.uv.sources]
 evalforge-llm-gateway = { workspace = true }

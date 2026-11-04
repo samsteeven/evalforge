@@ -21,9 +21,10 @@ from evalforge_api.modules.evaluations.models import EvaluationResult, Evaluatio
 from evalforge_api.modules.providers.factory import ProviderFactory
 from evalforge_api.modules.providers.models import ModelConfiguration
 from evalforge_engine import CaseOutcome, EvaluationCase, WorkItem, evaluate_cases
-from evalforge_engine.evaluators import get_evaluators
+from evalforge_engine.evaluators import JudgeModel, build_evaluators
 from evalforge_engine.scoring import cost_usd
 from evalforge_engine.targets import llm_target
+from evalforge_llm import LLMProvider
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +66,10 @@ async def execute_run(
                     .order_by(TestCase.position)
                 )
             )
+            judge_config = configuration.get("judge")  # absent des runs créés avant le juge
             model_ids = [uuid.UUID(model["id"]) for model in configuration["models"]]
+            if judge_config:
+                model_ids.append(uuid.UUID(judge_config["id"]))
             rows = await session.execute(
                 select(ModelConfiguration.id, ModelConfiguration.api_key_encrypted).where(
                     ModelConfiguration.id.in_(model_ids)
@@ -73,16 +77,28 @@ async def execute_run(
             )
             encrypted_keys = {model_id: encrypted for model_id, encrypted in rows}
 
-        items: list[WorkItem] = []
-        pricing: dict[uuid.UUID, dict[str, Any] | None] = {}
-        for model in configuration["models"]:
-            model_id = uuid.UUID(model["id"])
-            encrypted = encrypted_keys.get(model_id)
-            provider = provider_factory(
+        def provider_for(model: dict[str, Any]) -> LLMProvider:
+            encrypted = encrypted_keys.get(uuid.UUID(model["id"]))
+            return provider_factory(
                 provider_kind=model["provider_kind"],
                 base_url=model["base_url"],
                 api_key=secret_box.decrypt(encrypted) if encrypted else None,
             )
+
+        judge = (
+            JudgeModel(
+                provider_for(judge_config),
+                judge_config["model_name"],
+                temperature=judge_config["parameters"]["temperature"],
+            )
+            if judge_config
+            else None
+        )
+        items: list[WorkItem] = []
+        pricing: dict[uuid.UUID, dict[str, Any] | None] = {}
+        for model in configuration["models"]:
+            model_id = uuid.UUID(model["id"])
+            provider = provider_for(model)
             target = llm_target(
                 provider,
                 model=model["model_name"],
@@ -96,7 +112,7 @@ async def execute_run(
 
         outcomes = evaluate_cases(
             items,
-            get_evaluators(configuration["metrics"]),
+            build_evaluators(configuration["metrics"], judge),
             max_concurrency=execution["max_concurrency"],
             timeout_seconds=execution["timeout_seconds"],
         )

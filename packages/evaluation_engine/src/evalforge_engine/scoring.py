@@ -87,3 +87,59 @@ def cost_usd(
     if input_tokens is None or output_tokens is None:
         return None
     return (input_tokens * input_per_million + output_tokens * output_per_million) / 1_000_000
+
+
+class MetricRecord(BaseModel):
+    name: str
+    score: float | None
+    passed: bool | None
+    reason: str | None = None
+
+
+class ResultRecord(BaseModel):
+    """Une réponse et ses mesures, sous une forme commune à l'API et à la CLI."""
+
+    case_id: str
+    model: str
+    status: str
+    output: str | None = None
+    error: str | None = None
+    latency_ms: float | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cost_usd: float | None = None
+    metrics: list[MetricRecord] = []
+
+
+class ModelReport(BaseModel):
+    model: str
+    performance: PerformanceSummary
+    metrics: list[MetricSummary]
+
+
+def summarize_by_model(
+    models: Sequence[str], metric_names: Sequence[str], records: Sequence[ResultRecord]
+) -> list[ModelReport]:
+    """Qualité calculée sur les réponses obtenues seulement ; les échecs comptent dans la performance."""
+    reports = []
+    for model in models:
+        own = [record for record in records if record.model == model]
+        succeeded = [record for record in own if record.status == "success"]
+        scores: dict[str, list[tuple[float | None, bool | None]]] = {name: [] for name in metric_names}
+        for record in succeeded:
+            for metric in record.metrics:
+                scores.setdefault(metric.name, []).append((metric.score, metric.passed))
+        reports.append(
+            ModelReport(
+                model=model,
+                performance=summarize_performance(
+                    [record.status for record in own],
+                    [record.latency_ms for record in succeeded if record.latency_ms is not None],
+                    [record.input_tokens for record in succeeded],
+                    [record.output_tokens for record in succeeded],
+                    [record.cost_usd for record in succeeded],
+                ),
+                metrics=[summarize_metric(name, values) for name, values in scores.items()],
+            )
+        )
+    return reports

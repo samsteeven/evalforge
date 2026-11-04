@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ report.title }}</title>
+<style>
+  :root { --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --ok: #059669; --ko: #e11d48; --accent: #4f46e5; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #fff; }
+  main { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 32px 0 12px; }
+  .muted { color: var(--muted); }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; border: 1px solid var(--line); }
+  .ok { color: var(--ok); } .ko { color: var(--ko); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 16px 0 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; }
+  pre { white-space: pre-wrap; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12px; margin: 4px 0 0; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); padding: 6px 8px; }
+  td { border-bottom: 1px solid var(--line); padding: 6px 8px; vertical-align: top; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bar { height: 8px; background: #f1f5f9; border-radius: 4px; min-width: 140px; }
+  .bar > span { display: block; height: 8px; border-radius: 4px; background: var(--accent); }
+  .metric { display: inline-block; margin: 0 4px 4px 0; font-size: 12px; }
+  .note { font-size: 12px; color: var(--muted); }
+  @media print { main { padding: 0; } h2 { break-after: avoid; } tr { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>{{ report.title }}</h1>
+  <p class="muted">Généré le {{ report.generated_at.strftime("%d/%m/%Y à %H:%M") }} · état : <span class="badge">{{ report.status }}</span></p>
+
+  <dl>
+    <dt>Prompt</dt><dd>{{ report.config.prompt_name }}{% if report.config.prompt_version %} v{{ report.config.prompt_version }}{% endif %}</dd>
+    <dt>Jeu de données</dt><dd>{{ report.config.dataset_label }}{% if report.config.dataset_checksum %} <span class="muted">sha256 {{ report.config.dataset_checksum[:12] }}</span>{% endif %}</dd>
+    <dt>Modèles</dt><dd>{% for m in report.config.models %}{{ m.name }} <span class="muted">({{ m.model_name }})</span>{% if not loop.last %}, {% endif %}{% endfor %}</dd>
+    <dt>Métriques</dt><dd>{{ report.config.metrics | join(", ") }}</dd>
+    {% if report.config.judge %}<dt>Juge</dt><dd>{{ report.config.judge }}</dd>{% endif %}
+    {% if report.config.execution %}<dt>Exécution</dt><dd>{{ report.config.execution.max_concurrency }} en parallèle, délai {{ report.config.execution.timeout_seconds }} s par réponse</dd>{% endif %}
+  </dl>
+  {% if report.config.system %}<p class="note">Message système :</p><pre>{{ report.config.system }}</pre>{% endif %}
+  <p class="note">Gabarit :</p>
+  <pre>{{ report.config.template }}</pre>
+
+  <h2>Qualité</h2>
+  <p class="note">Taux de réussite sur les réponses obtenues. Une métrique indisponible n'est pas comptée comme un échec.</p>
+  <table>
+    <thead><tr><th>Métrique</th><th>Modèle</th><th></th><th class="num">Réussite</th><th class="num">Score moyen</th><th class="num">Évaluées</th><th class="num">Indisponibles</th></tr></thead>
+    <tbody>
+    {% for name in report.config.metrics %}
+      {% for model in report.models %}
+        {% for metric in model.metrics if metric.name == name %}
+        <tr>
+          <td>{% if loop.first %}<code>{{ name }}</code>{% endif %}</td>
+          <td>{{ model.model }}</td>
+          <td><div class="bar">{% if metric.pass_rate %}<span style="width: {{ (metric.pass_rate * 100) | round(1) }}%"></span>{% endif %}</div></td>
+          <td class="num">{{ metric.pass_rate | percent }}</td>
+          <td class="num">{{ metric.mean_score | percent }}</td>
+          <td class="num">{{ metric.evaluated }}</td>
+          <td class="num">{{ metric.unavailable }}</td>
+        </tr>
+        {% endfor %}
+      {% endfor %}
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Performance et coût</h2>
+  <table>
+    <thead><tr><th>Modèle</th><th class="num">Réussite</th><th class="num">Erreurs</th><th class="num">Délais dépassés</th><th class="num">P50</th><th class="num">P95</th><th class="num">Tokens entrée / sortie</th><th class="num">Coût</th></tr></thead>
+    <tbody>
+    {% for model in report.models %}{% set p = model.performance %}
+      <tr>
+        <td>{{ model.model }}</td>
+        <td class="num">{{ p.success_rate | percent }}</td>
+        <td class="num">{{ p.errors }}</td>
+        <td class="num">{{ p.timeouts }}</td>
+        <td class="num">{{ p.p50_latency_ms | ms }}</td>
+        <td class="num">{{ p.p95_latency_ms | ms }}</td>
+        <td class="num">{{ p.input_tokens if p.input_tokens is not none else "—" }} / {{ p.output_tokens if p.output_tokens is not none else "—" }}</td>
+        <td class="num">{{ p.cost_usd | usd }}{% if p.cost_usd is none and p.cost_known_for %} <span class="note">({{ p.cost_known_for }}/{{ p.succeeded }} connus)</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="note">Coût « inconnu » : pas de prix renseigné, ou tokens non annoncés par le fournisseur. Il n'est jamais remplacé par 0.</p>
+
+  <h2>Réponses</h2>
+  <table>
+    <thead><tr><th>Cas</th><th>Modèle</th><th>Réponse</th><th>Métriques</th><th class="num">Latence</th></tr></thead>
+    <tbody>
+    {% for r in report.results %}
+      <tr>
+        <td><code>{{ r.case_id }}</code></td>
+        <td>{{ r.model }}</td>
+        <td>{% if r.status == "success" %}{{ r.output }}{% else %}<span class="ko">{{ r.status }} : {{ r.error }}</span>{% endif %}</td>
+        <td>
+          {% for m in r.metrics %}
+            <div class="metric"><span class="{{ 'ok' if m.passed else 'ko' if m.passed is not none else 'muted' }}">{{ '✓' if m.passed else '✗' if m.passed is not none else '—' }}</span> {{ m.name }}{% if m.score is not none and m.name.startswith("judge_") %} ({{ m.score | percent }}){% endif %}{% if m.reason %}<br><span class="note">{{ m.reason }}</span>{% endif %}</div>
+          {% endfor %}
+        </td>
+        <td class="num">{{ r.latency_ms | ms }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="note">Rapport produit par EvalForge.</p>
+</main>
+</body>
+</html>

@@ -16,6 +16,8 @@ class Experiment(IdMixin, CreatedAtMixin, Base):
     name: Mapped[str] = mapped_column(String(200))
     prompt_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("prompt_versions.id"))
     metrics: Mapped[list[str]] = mapped_column(JSONB)
+    # Modèle qui note les réponses pour les métriques « judge_* » ; absent si aucune ne le demande.
+    judge_model_configuration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("model_configurations.id"))
 
 
 class ExperimentModel(Base):

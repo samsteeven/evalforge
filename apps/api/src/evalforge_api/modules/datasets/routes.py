@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Response
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from fastapi import APIRouter, HTTPException, Query, Response, UploadFile
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,8 @@ from evalforge_api.core.database import SessionDep
 from evalforge_api.core.tenancy import EditorDep, WorkspaceDep, not_found
 from evalforge_api.modules.datasets.models import Dataset, DatasetVersion, TestCase
 from evalforge_api.modules.projects.routes import get_project
+from evalforge_engine.datasets import MAX_BYTES, DatasetFormatError
+from evalforge_engine.datasets import parse as parse_cases
 
 router = APIRouter(tags=["datasets"])
 
@@ -174,6 +176,33 @@ async def create_version(
     except IntegrityError:  # deux créations simultanées du même numéro de version
         raise HTTPException(409, "Une autre version vient d'être créée, réessayez") from None
     return version
+
+
+@router.post("/datasets/{dataset_id}/versions/import", status_code=201, response_model=DatasetVersionOut)
+async def import_version(
+    dataset_id: uuid.UUID,
+    file: UploadFile,
+    response: Response,
+    workspace_id: EditorDep,
+    session: SessionDep,
+) -> DatasetVersion:
+    """Import d'un fichier .json ou .csv (format décrit dans evalforge_engine.datasets), mêmes règles qu'en JSON."""
+    raw = await file.read(MAX_BYTES + 1)
+    if len(raw) > MAX_BYTES:
+        raise HTTPException(413, f"Fichier trop gros : {MAX_BYTES // 1024 // 1024} Mo au plus")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(422, "Encodage attendu : UTF-8") from None
+    try:
+        body = DatasetVersionCreate.model_validate({"cases": parse_cases(text, file.filename or "")})
+    except DatasetFormatError as error:
+        raise HTTPException(422, f"Fichier refusé : {error}") from None
+    except ValidationError as error:
+        first = error.errors()[0]
+        where = ".".join(str(part) for part in first["loc"])
+        raise HTTPException(422, f"Fichier refusé : {where} : {first['msg']}") from None
+    return await create_version(dataset_id, body, response, workspace_id, session)
 
 
 @router.get("/datasets/{dataset_id}/versions", response_model=list[DatasetVersionOut])

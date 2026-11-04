@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,7 @@ from evalforge_api.modules.experiments.models import Experiment, ExperimentModel
 from evalforge_api.modules.projects.routes import get_project
 from evalforge_api.modules.prompts.models import PromptVersion
 from evalforge_api.modules.providers.models import ModelConfiguration
-from evalforge_engine.evaluators import available_metrics
+from evalforge_engine.evaluators import METRICS, available_metrics, needs_judge
 
 router = APIRouter(tags=["experiments"])
 
@@ -23,6 +23,15 @@ class ExperimentCreate(BaseModel):
     prompt_version_id: uuid.UUID
     model_configuration_ids: list[uuid.UUID] = Field(min_length=1, max_length=5)
     metrics: list[str] = Field(min_length=1, max_length=20)
+    judge_model_configuration_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def judge_when_needed(self) -> "ExperimentCreate":
+        if needs_judge(self.metrics) and self.judge_model_configuration_id is None:
+            raise ValueError("les métriques judge_* demandent un modèle juge (judge_model_configuration_id)")
+        if not needs_judge(self.metrics):
+            self.judge_model_configuration_id = None  # pas de juge inutile figé dans les runs
+        return self
 
     @field_validator("model_configuration_ids", "metrics")
     @classmethod
@@ -54,6 +63,7 @@ class ExperimentOut(BaseModel):
     prompt_version_id: uuid.UUID
     models: list[ExperimentModelOut]
     metrics: list[str]
+    judge: ExperimentModelOut | None
     created_at: datetime
 
 
@@ -75,6 +85,10 @@ async def experiment_models(session: AsyncSession, experiment_id: uuid.UUID) -> 
 
 async def to_out(session: AsyncSession, experiment: Experiment) -> ExperimentOut:
     models = await experiment_models(session, experiment.id)
+    judge = None
+    if experiment.judge_model_configuration_id is not None:
+        config = await session.get(ModelConfiguration, experiment.judge_model_configuration_id)
+        judge = ExperimentModelOut(model_configuration_id=config.id, name=config.name) if config else None
     return ExperimentOut(
         id=experiment.id,
         project_id=experiment.project_id,
@@ -82,6 +96,7 @@ async def to_out(session: AsyncSession, experiment: Experiment) -> ExperimentOut
         prompt_version_id=experiment.prompt_version_id,
         models=[ExperimentModelOut(model_configuration_id=m.model_configuration_id, name=m.label) for m in models],
         metrics=experiment.metrics,
+        judge=judge,
         created_at=experiment.created_at,
     )
 
@@ -89,17 +104,25 @@ async def to_out(session: AsyncSession, experiment: Experiment) -> ExperimentOut
 class MetricInfo(BaseModel):
     name: str
     description: str
-
-
-METRIC_DESCRIPTIONS = {
-    "exact_match": "Réponse identique à la réponse attendue (casse, espaces et ponctuation finale ignorés)",
-    "contains_expected": "La réponse attendue figure dans la réponse produite",
-}
+    method: str
+    requires_expected: bool
+    requires_context: bool
+    needs_judge: bool
 
 
 @router.get("/metrics", response_model=list[MetricInfo])
 async def list_metrics() -> list[MetricInfo]:
-    return [MetricInfo(name=name, description=METRIC_DESCRIPTIONS.get(name, "")) for name in available_metrics()]
+    return [
+        MetricInfo(
+            name=spec.name,
+            description=spec.description,
+            method=spec.method,
+            requires_expected=spec.requires_expected,
+            requires_context=spec.requires_context,
+            needs_judge=spec.needs_judge,
+        )
+        for spec in (METRICS[name] for name in available_metrics())
+    ]
 
 
 @router.post("/projects/{project_id}/experiments", status_code=201, response_model=ExperimentOut)
@@ -122,6 +145,14 @@ async def create_experiment(
     }
     if len(configs) != len(body.model_configuration_ids):
         raise HTTPException(422, "Configuration de modèle introuvable dans ce projet")
+    if body.judge_model_configuration_id is not None:
+        judge = await session.scalar(
+            select(ModelConfiguration.id).where(
+                ModelConfiguration.id == body.judge_model_configuration_id, ModelConfiguration.project_id == project_id
+            )
+        )
+        if judge is None:
+            raise HTTPException(422, "Modèle juge introuvable dans ce projet")
 
     experiment = Experiment(
         workspace_id=workspace_id,
@@ -129,6 +160,7 @@ async def create_experiment(
         name=body.name,
         prompt_version_id=prompt.id,
         metrics=body.metrics,
+        judge_model_configuration_id=body.judge_model_configuration_id,
     )
     session.add(experiment)
     await session.flush()

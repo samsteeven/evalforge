@@ -63,7 +63,9 @@ class FakeLLM:
 
     - « parrot » répond la réponse attendue de la question trouvée dans le prompt ;
     - « vague » répond toujours « Je ne sais pas. » ;
-    - « hang » ne répond jamais (arrêt de l'API pendant un run).
+    - « hang » ne répond jamais (arrêt de l'API pendant un run) ;
+    - « judge » joue le juge : 5 si la réponse évaluée contient la réponse attendue, 1 sinon ;
+    - « judge-garbage » répond un texte sans JSON.
     """
 
     def __init__(self) -> None:
@@ -79,6 +81,14 @@ class FakeLLM:
             await asyncio.sleep(3600)
         if model == "parrot":
             content = next((answer for question, answer in self.answers.items() if question in prompt), "?")
+        elif model == "judge":
+            expected = re.search(r"^Réponse attendue : (.*)$", prompt, re.MULTILINE)
+            actual = re.search(r"^Réponse évaluée : (.*)$", prompt, re.MULTILINE)
+            right = bool(expected and actual and expected[1].strip() in actual[1])
+            verdict = {"score": 5 if right else 1, "reason": "Même information." if right else "Ne répond pas."}
+            content = json.dumps(verdict, ensure_ascii=False)
+        elif model == "judge-garbage":
+            content = "Excellente réponse, bravo."
         else:
             content = "Je ne sais pas."
         words = len(re.findall(r"\w+", prompt))
