@@ -33,6 +33,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 
 FROM ${PYTHON_IMAGE} AS runtime
+# Correctifs de sécurité Debian publiés depuis l'image de base (Trivy en relevait 61, dont 3 critiques).
+RUN apt-get update     && apt-get upgrade -y --no-install-recommends     && rm -rf /var/lib/apt/lists/*
 LABEL org.opencontainers.image.title="evalforge-backend" \
       org.opencontainers.image.source="https://github.com/samsteeven/evalforge" \
       org.opencontainers.image.licenses="MIT"
