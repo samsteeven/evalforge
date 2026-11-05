@@ -2,7 +2,7 @@
 
 Plateforme d'évaluation pour applications LLM, RAG et agents : **Python (FastAPI)** côté serveur, **React + TypeScript** côté interface. Une équipe y versionne ses jeux de tests et ses prompts, lance une expérience sur un ou plusieurs modèles, et obtient pour chaque réponse des métriques de qualité, la latence, les tokens et le coût. L'objectif à terme : comparer à une baseline et bloquer un déploiement qui dégrade la qualité.
 
-> **État : incrément 6 en cours.** Fait : tests d'injection de prompt (directe et indirecte), traces OpenTelemetry de bout en bout, test de charge en CI ; à venir : images Docker, Kubernetes compatible OpenShift, Ansible, Terraform. Incrément 5 : agents évalués sur leur trajectoire (outils choisis, ordre, arguments, étapes inutiles), avec un agent de support construit pour l'occasion ; webhooks signés en fin de run ; porte de qualité d'agent en CI. En plus des workers (outbox, RabbitMQ, reprise après panne), de la baseline et de la détection de régression, du juge LLM, de Ragas et DeepEval, du rapport HTML et de la CLI. Voir [la feuille de route](#feuille-de-route).
+> **État : incrément 6.** Tests d'injection de prompt (directe et indirecte), traces OpenTelemetry de bout en bout, test de charge en CI ; images non root, manifestes Kubernetes compatibles OpenShift déployés par Ansible et testés en CI sur un cluster kind aux contraintes d'OpenShift, Terraform pour AWS (ECS Fargate). Avant :  agents évalués sur leur trajectoire (outils choisis, ordre, arguments, étapes inutiles), avec un agent de support construit pour l'occasion ; webhooks signés en fin de run ; porte de qualité d'agent en CI. En plus des workers (outbox, RabbitMQ, reprise après panne), de la baseline et de la détection de régression, du juge LLM, de Ragas et DeepEval, du rapport HTML et de la CLI. Voir [la feuille de route](#feuille-de-route).
 
 ![Run d'évaluation : deux modèles comparés sur cinq questions, notés par un juge LLM](docs/screenshots/run-comparaison.png)
 
@@ -58,7 +58,10 @@ Toutes les routes métier demandent `Authorization: Bearer …` et l'en-tête `X
 | Webhooks | Contre un vrai RabbitMQ : fin de run envoyée signée (HMAC vérifié, mauvais secret refusé), résumé par modèle et régression face à la baseline dans la charge utile ; 503 puis 200, livré à la 2e tentative ; 410, refus définitif sans reprise ; 503 persistant, abandon après 3 tentatives ; une livraison réussie n'est jamais renvoyée ; adresse interne refusée ; réservé aux administrateurs ; dans le navigateur, livraison au faux destinataire | Un vrai destinataire lent ; la vérification côté destinataire est fournie (`verify`) mais lui revient ([ADR-025](docs/architecture/adr/0025-webhooks.md)) |
 | Injections de prompt | 4 attaques (révéler les consignes, changement de rôle, ticket forcé, instruction cachée dans une note de commande) : l'agent soigneux passe à 100 % ; un modèle crédule fuit ses consignes sans la garde de sortie et en est empêché avec elle, mais ses actions obtenues par injection passent (`no_forbidden_tool` à 33 %) et la porte de sécurité le bloque en CI | Un vrai modèle ; attaques encodées ou en plusieurs tours ; autorisation des actions par outil ([ADR-027](docs/architecture/adr/0027-injections-de-prompt.md)) |
 | Traces | Une trace par run à travers l'API, le worker et l'agent (contexte transporté par l'outbox) ; spans GenAI avec modèle et tokens, sans prompt ni clé ; en CI, exportée en OTLP vers un vrai Jaeger et retrouvée par son run | Un collecteur et un stockage de production ; métriques et journaux OpenTelemetry ([ADR-026](docs/architecture/adr/0026-observabilite-et-charge.md)) |
-| Charge | Locust, 20 utilisateurs, 60 s, en CI avec seuils : aucune erreur, P95 des lectures sous 500 ms, chaque run terminé. A trouvé trois défauts, corrigés et expliqués par les traces : Argon2 qui gelait l'API (inscription 5,8 s → 0,22 s), `localhost` à 2 s par connexion sous Windows, pool de connexions trop petit | Au-delà d'une machine ; environ 2 % de requêtes encore au-delà d'une seconde sur le poste de développement, attribuées à l'ouverture de connexions via Docker Desktop |
+| Charge | Locust, 20 utilisateurs, 60 s, en CI avec seuils : aucune erreur, P95 des lectures sous 500 ms, chaque run terminé. A trouvé trois défauts, corrigés et expliqués par les traces : Argon2 qui gelait l'API (inscription 5,8 s → 0,22 s), `localhost` à 2 s par connexion sous Windows, pool de connexions trop petit | Au-delà d'une machine. Sur le runner Linux de la CI : P95 des lectures de 6 à 12 ms, 40 ms au plus ; sur le poste Windows, environ 2 % de requêtes au-delà d'une seconde, attribuées par les traces à l'ouverture de connexions via Docker Desktop |
+| Images | Non root, racine en lecture seule, UID arbitraire du groupe 0 accepté ; toute la plateforme lancée depuis les images (`docker compose --profile app`) avec un run d'agent de bout en bout ; l'interface s'affiche sous sa politique de sécurité de contenu (Cypress) ; vulnérabilités analysées par Trivy en CI (rapport) | Signature et publication des images dans un registre |
+| Kubernetes et OpenShift | En CI, sur kind : déploiement puis redéploiement par Ansible (`ansible-lint` profil production), niveau `restricted` imposé (un pod root est refusé), UID `1000680000` et groupe 0 imposés, NetworkPolicies vérifiées par des connexions refusées et acceptées, un run d'agent de bout en bout à travers le front | **Un vrai cluster OpenShift** (SCC, quotas, Routes) ; les contraintes sont reproduites, pas l'environnement ([ADR-028](docs/architecture/adr/0028-deploiement.md)) |
+| Terraform (AWS) | `fmt` et `validate` en CI, configuration analysée par Trivy (exceptions justifiées dans le code) | **Jamais appliqué** : aucun compte AWS utilisé ; coûts et comportement réels non mesurés |
 | Régression | Comparaison appariée cas par cas, tolérance réglable, McNemar exact, jeux différents refusés ; un nouveau prompt qui casse 5 réponses est signalé, le même prompt ne l'est pas ; la CLI échoue face à une baseline JSON | Sur un vrai jeu de plusieurs centaines de cas ([ADR-023](docs/architecture/adr/0023-detection-de-regression.md)) | **Aucun appel à un vrai modèle** : pas de clé utilisée, Ollama pas installé sur le poste de développement |
 | Juge LLM | Note de 1 à 5 justifiée, grille et version figées avec le modèle juge réellement utilisé ; une réponse du juge illisible ou hors grille rend la métrique indisponible (pas 0) sans faire échouer le run ; consigne au juge d'ignorer les instructions contenues dans la réponse | **L'accord entre le juge et des évaluateurs humains** : pas mesuré, et un vrai juge peut se tromper ([ADR-019](docs/architecture/adr/0019-juge-llm.md)) |
 | Ragas et DeepEval | Contre les vraies bibliothèques (Ragas 0.4.3, DeepEval 4.3.3), chacune dans son job de CI : leurs prompts et leurs schémas passent par la passerelle EvalForge, leur score est repris (2/3 d'affirmations appuyées → 0,67), une sortie non conforme est redemandée une fois, un NaN de Ragas devient « indisponible », leur télémétrie est coupée | Leurs résultats avec un vrai modèle : le faux modèle des tests répond à la main pour chaque schéma ([ADR-021](docs/architecture/adr/0021-adaptateurs-ragas-deepeval.md)) |
@@ -127,6 +130,27 @@ Traces : `docker compose --profile observability up -d jaeger`, puis `OTEL_EXPOR
 L'agent de démonstration : `uv run evalforge-support-agent` (port 8200, piloté par le faux fournisseur ; `SUPPORT_AGENT_LLM_MODEL=careless-agent` pour le pilote négligent, ou un vrai fournisseur via `SUPPORT_AGENT_LLM_BASE_URL`, `_MODEL`, `_API_KEY`), à déclarer comme « Agent EvalForge » sur `http://127.0.0.1:8200`. Pour recevoir les webhooks sur le poste : `EVALFORGE_ALLOW_PRIVATE_WEBHOOK_URLS=true` et `http://127.0.0.1:8100/webhooks/receive` (le faux fournisseur les garde, `GET /webhooks/received`).
 
 Sans clé d'API : `uv run python scripts/fake_llm.py` lance un faux fournisseur sur `http://127.0.0.1:8100/v1` (modèles `grounded` et `vague`), à déclarer comme modèle « Compatible OpenAI » avec `EVALFORGE_ALLOW_PRIVATE_PROVIDER_URLS=true`. Un modèle local avec Ollama : type « Ollama », `http://localhost:11434/v1`, même réglage.
+
+## Déployer
+
+```bash
+docker compose --profile app up -d --build        # toute la plateforme depuis les images : http://localhost:8080
+
+# Kubernetes local (kind) aux contraintes d'OpenShift, déployé par Ansible
+kind create cluster --name evalforge
+docker build -t evalforge-backend:ci . && docker build -t evalforge-frontend:ci frontend
+kind load docker-image evalforge-backend:ci evalforge-frontend:ci --name evalforge
+ansible-galaxy collection install -r deploy/ansible/requirements.yml
+ansible-playbook deploy/ansible/deploy.yml -i deploy/ansible/inventories/kind
+
+# OpenShift : oc login, oc project evalforge, coffre rempli (inventories/openshift/.../vault.example.yml)
+ansible-playbook deploy/ansible/deploy.yml -i deploy/ansible/inventories/openshift --ask-vault-pass
+
+# AWS (ECS Fargate, RDS, Amazon MQ) : plan à relire avant tout apply
+cd deploy/terraform/aws && terraform init && terraform plan -var environment=staging
+```
+
+Ansible ne s'exécute pas sous Windows comme poste de contrôle : WSL, Linux, macOS, ou un conteneur.
 
 ## Tests
 
@@ -198,7 +222,7 @@ Codes de sortie : 0 tout va bien, 1 porte de qualité non franchie, 2 configurat
 | 3 | Juge LLM, adaptateurs Ragas et DeepEval, import CSV, CLI et porte de qualité, rapport HTML | **fait** |
 | 4 | Outbox, RabbitMQ (aio-pika), workers, reprises et file morte ; baseline et détection de régression | **fait** |
 | 5 | Un agent de support construit pour l'occasion (outils, appels de fonctions), évalué par EvalForge : trajectoires, choix des outils et de leurs arguments ; webhooks et contrôle qualité en CI | **fait** |
-| 6 | Tests de prompt injection, OpenTelemetry, charge ; images Docker de l'API et du front, manifestes Kubernetes compatibles OpenShift (conteneurs non root, testés en CI sur un cluster local), playbook Ansible de déploiement, Terraform et AWS (ECS Fargate) | à faire |
+| 6 | Tests de prompt injection, OpenTelemetry, charge ; images Docker de l'API et du front, manifestes Kubernetes compatibles OpenShift (conteneurs non root, testés en CI sur un cluster local), playbook Ansible de déploiement, Terraform et AWS (ECS Fargate) | **fait** |
 
 ## Structure
 
@@ -219,5 +243,9 @@ frontend/
   src/auth/                     session : jeton en mémoire, renouvellement, espace courant
   src/features/                 jeux de données, prompts, modèles, expériences, runs (comparaison, trajectoires), webhooks
   cypress/                      parcours de bout en bout
+deploy/k8s/                     Kustomize : base, composants (dépendances de test, démonstration), overlays kind et OpenShift
+deploy/ansible/                 playbook de déploiement, inventaires kind et OpenShift
+deploy/terraform/aws/           VPC, ALB, ECS Fargate, RDS, Amazon MQ, Secrets Manager, ECR
+Dockerfile, frontend/Dockerfile images backend et front
 docs/architecture/              vision complète et ADR
 ```

@@ -8,3 +8,6 @@ dist/
 build/
 *.egg-info/
 .deepeval/
+
+# Coffre Ansible : il vit avec l'environnement, jamais dans le dépôt.
+deploy/ansible/**/vault.yml

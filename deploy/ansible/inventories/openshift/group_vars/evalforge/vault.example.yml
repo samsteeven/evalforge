@@ -1,0 +1,9 @@
+---
+# Modèle : copier en vault.yml, remplir, puis chiffrer avec ansible-vault encrypt vault.yml.
+# vault.yml en clair ne doit jamais être commité (.gitignore).
+vault_database_url: postgresql+asyncpg://evalforge:CHANGER@postgres.example.internal:5432/evalforge
+vault_rabbitmq_url: amqps://evalforge:CHANGER@rabbitmq.example.internal:5671/
+# python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+vault_secret_key: CHANGER-cle-fernet-de-44-caracteres-xxxxxxxxx=
+# python -c "import secrets; print(secrets.token_urlsafe(48))"
+vault_jwt_secret_key: CHANGER-au-moins-32-caracteres-aleatoires

@@ -1,0 +1,39 @@
+# Tout est refusé en entrée, sauf ce qui est déclaré. Les sorties restent ouvertes : les fournisseurs de modèles,
+# les agents évalués et les destinataires de webhooks sont à l'extérieur (protégés côté application par SSRF).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: evalforge-default-deny-ingress
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/part-of: evalforge }
+  policyTypes: [Ingress]
+---
+# Le front reçoit le trafic de l'Ingress ou de la Route.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: evalforge-frontend-ingress
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: evalforge-frontend }
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - { port: 8080, protocol: TCP }
+---
+# L'API n'est jointe que par le front, qui lui relaie /api.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: evalforge-api-from-frontend
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: evalforge-api }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: evalforge-frontend }
+      ports:
+        - { port: 8000, protocol: TCP }

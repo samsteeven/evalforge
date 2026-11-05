@@ -1,0 +1,24 @@
+# EvalForge sur Kubernetes ou OpenShift : API, worker, front, migrations.
+# PostgreSQL et RabbitMQ ne sont pas ici : services managés en production, composant « dependencies » pour un
+# cluster de test. Les secrets non plus : créés à part (Ansible et son coffre, ou le générateur d'un overlay).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: evalforge
+    includeSelectors: false
+    includeTemplates: true
+resources:
+  - config.yaml
+  - migrate-job.yaml
+  - api.yaml
+  - worker.yaml
+  - frontend.yaml
+  - network-policies.yaml
+images:
+  - name: evalforge-backend
+    newName: ghcr.io/samsteeven/evalforge-backend
+    newTag: latest
+  - name: evalforge-frontend
+    newName: ghcr.io/samsteeven/evalforge-frontend
+    newTag: latest

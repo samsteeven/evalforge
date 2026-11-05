@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: evalforge-config
+data:
+  EVALFORGE_RABBITMQ_PREFIX: evalforge
+  EVALFORGE_COOKIE_SECURE: "true"
+  # Seuls le front (nginx) et l'Ingress ou la Route parlent à l'API : leurs en-têtes X-Forwarded-* sont crus.
+  FORWARDED_ALLOW_IPS: "*"
+  # Vide : pas d'export de traces. Sinon l'adresse OTLP/HTTP d'un collecteur, par exemple http://otel-collector:4318.
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""
+  EVALFORGE_DATABASE_POOL_SIZE: "10"

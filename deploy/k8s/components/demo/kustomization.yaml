@@ -1,0 +1,13 @@
+# Démonstration sans clé d'API : le faux fournisseur et l'agent de support, déclarés dans l'interface comme
+# « Compatible OpenAI » sur http://fake-llm:8100/v1 et « Agent EvalForge » sur http://support-agent:8200.
+# Ce sont des adresses internes : l'overlay qui inclut ce composant autorise les adresses privées.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - demo.yaml
+patches:
+  - target: { kind: ConfigMap, name: evalforge-config }
+    patch: |-
+      - op: add
+        path: /data/EVALFORGE_ALLOW_PRIVATE_PROVIDER_URLS
+        value: "true"

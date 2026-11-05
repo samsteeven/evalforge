@@ -1,0 +1,19 @@
+---
+evalforge_overlay: kind
+evalforge_namespace: evalforge
+evalforge_kustomize_binary: kubectl
+evalforge_wait_timeout: 300
+
+# Cluster de test jetable : secrets de démonstration en clair. Pour un vrai environnement, un coffre Ansible
+# (inventories/openshift/group_vars/evalforge/vault.example.yml).
+evalforge_secrets:
+  EVALFORGE_DATABASE_URL: postgresql+asyncpg://evalforge:mot-de-passe-kind@postgres:5432/evalforge
+  EVALFORGE_RABBITMQ_URL: amqp://evalforge:mot-de-passe-kind@rabbitmq:5672/
+  EVALFORGE_SECRET_KEY: dGVzdC1jbGUtZmVybmV0LWUyZS0wMTIzNDU2Nzg5YWI=
+  EVALFORGE_JWT_SECRET_KEY: cle-kind-pour-les-jetons-d-acces-0123456789
+
+evalforge_dependencies_secrets:
+  POSTGRES_USER: evalforge
+  POSTGRES_PASSWORD: mot-de-passe-kind
+  RABBITMQ_USER: evalforge
+  RABBITMQ_PASSWORD: mot-de-passe-kind

@@ -1,0 +1,7 @@
+# PostgreSQL et RabbitMQ pour un cluster de test (données en mémoire, une réplique). En production : services
+# managés (RDS et Amazon MQ, voir deploy/terraform), ou opérateurs dédiés sur OpenShift.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - postgres.yaml
+  - rabbitmq.yaml

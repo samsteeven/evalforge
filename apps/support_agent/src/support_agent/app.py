@@ -78,4 +78,9 @@ def create_app(settings: AgentSettings | None = None, client: httpx.AsyncClient 
 def main() -> None:
     if configure_telemetry("evalforge-support-agent"):
         HTTPXClientInstrumentor().instrument()
-    uvicorn.run(create_app(), host="127.0.0.1", port=int(os.environ.get("SUPPORT_AGENT_PORT", "8200")))
+    uvicorn.run(
+        create_app(),
+        # 0.0.0.0 dans un conteneur ; 127.0.0.1 par défaut sur un poste.
+        host=os.environ.get("SUPPORT_AGENT_HOST", "127.0.0.1"),
+        port=int(os.environ.get("SUPPORT_AGENT_PORT", "8200")),
+    )

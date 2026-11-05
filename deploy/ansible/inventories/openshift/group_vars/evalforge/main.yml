@@ -1,0 +1,14 @@
+---
+evalforge_overlay: openshift
+evalforge_namespace: evalforge
+evalforge_kustomize_binary: oc
+evalforge_wait_timeout: 600
+# Version déployée : l'étiquette des images publiées (par exemple le SHA du commit construit par la CI).
+evalforge_image_tag: latest
+
+# Valeurs secrètes dans vault.yml, chiffré par ansible-vault (modèle : vault.example.yml).
+evalforge_secrets:
+  EVALFORGE_DATABASE_URL: "{{ vault_database_url }}"
+  EVALFORGE_RABBITMQ_URL: "{{ vault_rabbitmq_url }}"
+  EVALFORGE_SECRET_KEY: "{{ vault_secret_key }}"
+  EVALFORGE_JWT_SECRET_KEY: "{{ vault_jwt_secret_key }}"

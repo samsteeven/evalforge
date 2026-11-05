@@ -20,7 +20,7 @@ Un run traverse l'API, une transaction (outbox), RabbitMQ, un worker, des modèl
 2. **`localhost` coûte 2 s par connexion sous Windows** : il essaie d'abord `::1`, où Docker n'écoute pas. Les traces montraient des spans `connect` de 2 050 ms pile. Adresses par défaut en `127.0.0.1`.
 3. **Pool de connexions trop petit** : au-delà de 5 connexions, SQLAlchemy en ouvrait de nouvelles à chaque pointe, et une connexion neuve à travers la redirection de ports de Docker Desktop coûte jusqu'à une seconde sous charge. Pool réglable, 20 + 10 par défaut.
 
-Résultat sur le poste de développement (tout sur une machine, Locust compris) : P95 des lectures de 32 à 48 ms au lieu de 1,6 s. Environ 2 % des requêtes dépassent encore la seconde ; leurs traces montrent l'ouverture d'une connexion. À confirmer sur le runner Linux de la CI, sans Docker Desktop.
+Résultat sur le poste de développement (tout sur une machine, Locust compris) : P95 des lectures de 32 à 48 ms au lieu de 1,6 s. Environ 2 % des requêtes dépassent encore la seconde ; leurs traces montrent l'ouverture d'une connexion. Sur le runner Linux de la CI, sans Docker Desktop : P95 des lectures de 6 à 12 ms, 40 ms au plus, aucune requête lente ; les queues observées sur le poste viennent bien de l'environnement Windows.
 
 ## Conséquences
 

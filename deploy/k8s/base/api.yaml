@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evalforge-api
+  labels:
+    app.kubernetes.io/name: evalforge-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: evalforge-api }
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: evalforge-api }
+    spec:
+      automountServiceAccountToken: false
+      # Pas de variables *_PORT injectées pour chaque Service : elles entrent en collision (SUPPORT_AGENT_PORT).
+      enableServiceLinks: false
+      # Pas de runAsUser : l'image tourne avec n'importe quel UID du groupe 0 (OpenShift en impose un).
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: api
+          image: evalforge-backend
+          ports:
+            - { name: http, containerPort: 8000 }
+          envFrom:
+            - configMapRef: { name: evalforge-config }
+            - secretRef: { name: evalforge-secrets }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            # Argon2 : 64 Mio par hachage, au plus cpu/2 à la fois (ADR-026).
+            limits: { memory: 768Mi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evalforge-api
+  labels:
+    app.kubernetes.io/name: evalforge-api
+spec:
+  selector: { app.kubernetes.io/name: evalforge-api }
+  ports:
+    - { name: http, port: 8000, targetPort: http }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: evalforge-api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: evalforge-api }

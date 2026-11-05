@@ -279,3 +279,117 @@ jobs:
             charge.html
             *.log
           retention-days: 7
+
+  kubernetes:
+    # Images, puis déploiement par Ansible sur un cluster kind qui reproduit les contraintes d'OpenShift :
+    # niveau de sécurité « restricted » imposé, UID arbitraire du groupe 0, règles réseau appliquées.
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Images backend et front
+        run: |
+          docker build -t evalforge-backend:ci .
+          docker build -t evalforge-frontend:ci frontend
+          docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep evalforge
+
+      - name: Vulnérabilités des images (Trivy, correctifs disponibles seulement)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: evalforge-backend:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: table
+          exit-code: "0" # rapport : une CVE publiée hier ne doit pas bloquer une modification sans rapport
+
+      - uses: helm/kind-action@v1.15.2
+        with:
+          cluster_name: evalforge
+
+      - name: Charger les images dans le cluster
+        run: kind load docker-image evalforge-backend:ci evalforge-frontend:ci --name evalforge
+
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Ansible
+        run: |
+          pip install "ansible-core==2.21.6" "kubernetes==37.0.1" "ansible-lint==26.10.1" httpx
+          ansible-galaxy collection install -r deploy/ansible/requirements.yml
+
+      - name: Lint du playbook (profil production)
+        working-directory: deploy/ansible
+        run: ansible-lint --profile production deploy.yml
+
+      - name: Déploiement par Ansible, puis redéploiement
+        working-directory: deploy/ansible
+        run: |
+          ansible-playbook deploy.yml -i inventories/kind
+          ansible-playbook deploy.yml -i inventories/kind
+
+      - name: Un run d'agent de bout en bout, à travers le front
+        run: |
+          kubectl -n evalforge port-forward svc/evalforge-frontend 18080:8080 > /dev/null 2>&1 &
+          until curl -sf http://127.0.0.1:18080/healthz > /dev/null; do sleep 1; done
+          EVALFORGE_SMOKE_API=http://127.0.0.1:18080 EVALFORGE_SMOKE_AGENT_URL=http://support-agent:8200 \
+            python scripts/smoke_trace.py --sans-trace
+
+      - name: Contraintes de sécurité réellement appliquées
+        run: |
+          set -e
+          # Aucun conteneur ne tourne en root.
+          kubectl -n evalforge get pods -o jsonpath='{range .items[*]}{.metadata.name} {.spec.securityContext.runAsUser}{"\n"}{end}' | tee uids.txt
+          ! awk '$2 == "0" || $2 == ""' uids.txt | grep -v '^evalforge-migrate' | grep .
+          # Le niveau « restricted » refuse un pod root.
+          if kubectl -n evalforge run root --image=evalforge-backend:ci --restart=Never \
+               --overrides='{"spec":{"securityContext":{"runAsUser":0}}}' --dry-run=server 2> refus.txt; then
+            echo "un pod root a été accepté"; exit 1
+          fi
+          grep -q "violates PodSecurity" refus.txt
+          # Règles réseau : le faux fournisseur ne joint pas l'API ; le worker joint l'agent mais pas l'API.
+          probe='import sys, urllib.request
+          try:
+              urllib.request.urlopen(sys.argv[1], timeout=3); print("joignable")
+          except Exception:
+              print("bloqué")'
+          test "$(kubectl -n evalforge exec deploy/fake-llm -- python -c "$probe" http://evalforge-api:8000/health)" = "bloqué"
+          test "$(kubectl -n evalforge exec deploy/evalforge-worker -- python -c "$probe" http://evalforge-api:8000/health)" = "bloqué"
+          test "$(kubectl -n evalforge exec deploy/evalforge-worker -- python -c "$probe" http://support-agent:8200/health)" = "joignable"
+
+      - name: État du cluster en cas d'échec
+        if: failure()
+        run: |
+          kubectl -n evalforge get all,events
+          kubectl -n evalforge logs deploy/evalforge-api --tail=50 || true
+          kubectl -n evalforge logs deploy/evalforge-worker --tail=50 || true
+
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: deploy/terraform/aws
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_version: 1.16.7
+
+      - name: Format et validation (sans compte AWS)
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: Configuration Terraform, Kubernetes et Dockerfiles (Trivy)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          format: table
+          exit-code: "0"

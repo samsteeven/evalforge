@@ -1,0 +1,59 @@
+# Cluster de test (kind, en CI et sur un poste) avec les contraintes d'OpenShift reproduites :
+# - niveau de sécurité des pods « restricted » imposé à l'espace de noms (comme la SCC restricted-v2) ;
+# - UID arbitraire et groupe 0 pour les conteneurs EvalForge, comme OpenShift les attribue.
+# Secrets créés par le playbook Ansible (deploy/ansible), comme pour un vrai environnement :
+#   ansible-playbook deploy/ansible/deploy.yml -i deploy/ansible/inventories/kind
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: evalforge
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: evalforge
+    includeSelectors: false
+    includeTemplates: true
+resources:
+  - namespace.yaml
+  - ../../base
+components:
+  - ../../components/dependencies
+  - ../../components/demo
+images:
+  # Nom de la base (déjà renommé) et nom brut (composant demo) : les deux pointent vers l'image chargée dans kind.
+  - name: evalforge-backend
+    newTag: ci
+  - name: ghcr.io/samsteeven/evalforge-backend
+    newName: evalforge-backend
+    newTag: ci
+  - name: ghcr.io/samsteeven/evalforge-frontend
+    newName: evalforge-frontend
+    newTag: ci
+patches:
+  # Accès en http par redirection de port : pas de cookie « secure ».
+  - target: { kind: ConfigMap, name: evalforge-config }
+    patch: |-
+      - op: replace
+        path: /data/EVALFORGE_COOKIE_SECURE
+        value: "false"
+  # Une réplique de chaque : le cluster de test tient sur un poste.
+  - target: { kind: Deployment, name: "evalforge-(api|worker|frontend)" }
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  # UID arbitraire du groupe 0 : ce qu'OpenShift impose, et ce que les images doivent supporter.
+  - target: { kind: Deployment, name: "evalforge-.*|fake-llm|support-agent" }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext/runAsUser
+        value: 1000680000
+      - op: add
+        path: /spec/template/spec/securityContext/runAsGroup
+        value: 0
+  - target: { kind: Job, name: evalforge-migrate }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext/runAsUser
+        value: 1000680000
+      - op: add
+        path: /spec/template/spec/securityContext/runAsGroup
+        value: 0

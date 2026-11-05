@@ -1,0 +1,9 @@
+# OpenShift : déployé dans le projet courant (oc project …), exposé par une Route TLS.
+# Les secrets evalforge-secrets (et evalforge-dependencies si le composant est inclus) sont créés à part :
+# le playbook Ansible les écrit depuis son coffre (deploy/ansible).
+# La SCC restricted-v2 attribue l'UID : les manifestes n'en fixent aucun, les images l'acceptent (groupe 0).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - route.yaml

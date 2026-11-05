@@ -1,0 +1,174 @@
+---
+# Déploie EvalForge sur Kubernetes ou OpenShift à partir d'un overlay Kustomize (deploy/k8s/overlays).
+#
+#   ansible-galaxy collection install -r deploy/ansible/requirements.yml
+#   ansible-playbook deploy/ansible/deploy.yml -i deploy/ansible/inventories/kind
+#   ansible-playbook deploy/ansible/deploy.yml -i deploy/ansible/inventories/openshift --ask-vault-pass
+#
+# Ordre : secrets, dépendances de test (si l'overlay en contient), migrations (Job rejoué à chaque déploiement),
+# puis API, worker et front, dont on attend la disponibilité. Rejouable sans effet de bord.
+- name: Déployer EvalForge
+  hosts: evalforge
+  connection: local
+  gather_facts: false
+
+  vars:
+    overlay_dir: "{{ playbook_dir }}/../k8s/overlays/{{ evalforge_overlay }}"
+    image_pattern: '(ghcr\.io/samsteeven/evalforge-(backend|frontend)):[A-Za-z0-9._-]+'
+
+  pre_tasks:
+    - name: Les secrets viennent du coffre (inventaire), jamais de l'overlay
+      ansible.builtin.assert:
+        that:
+          - evalforge_secrets is defined
+          - evalforge_secrets.EVALFORGE_DATABASE_URL | default('') | length > 0
+          - evalforge_secrets.EVALFORGE_RABBITMQ_URL | default('') | length > 0
+          - evalforge_secrets.EVALFORGE_SECRET_KEY | default('') | length == 44
+          - evalforge_secrets.EVALFORGE_JWT_SECRET_KEY | default('') | length >= 32
+        fail_msg: "evalforge_secrets incomplet : voir inventories/openshift/group_vars/evalforge/vault.example.yml"
+        quiet: true
+
+  tasks:
+    - name: Rendre l'overlay {{ evalforge_overlay }}
+      ansible.builtin.set_fact:
+        manifests: >-
+          {{ lookup('kubernetes.core.kustomize', dir=overlay_dir, binary_path=evalforge_kustomize_binary)
+             | from_yaml_all | select | list }}
+
+    - name: Fixer la version des images
+      when: evalforge_image_tag is defined
+      ansible.builtin.set_fact:
+        manifests: "{{ manifests | to_json | regex_replace(image_pattern, '\\1:' ~ evalforge_image_tag) | from_json }}"
+
+    - name: Répartir les manifestes par étape
+      ansible.builtin.set_fact:
+        namespaces: "{{ manifests | selectattr('kind', 'equalto', 'Namespace') | list }}"
+        dependencies: >-
+          {%- set found = [] -%}
+          {%- for manifest in manifests -%}
+            {%- if (manifest.metadata.labels | default({})).get('app.kubernetes.io/name') in ['postgres', 'rabbitmq'] -%}
+              {%- set _ = found.append(manifest) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ found }}
+        migrate_job: "{{ manifests | selectattr('kind', 'equalto', 'Job') | list }}"
+        configuration: "{{ manifests | selectattr('kind', 'equalto', 'ConfigMap') | list }}"
+
+    - name: Le reste de l'application
+      ansible.builtin.set_fact:
+        application: >-
+          {{ manifests | difference(namespaces) | difference(dependencies) | difference(migrate_job)
+             | difference(configuration) }}
+
+    - name: Espace de noms
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ item }}"
+      loop: "{{ namespaces }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    - name: Secrets de l'application
+      no_log: true
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ evalforge_namespace }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: evalforge-secrets
+            labels: { app.kubernetes.io/part-of: evalforge }
+          type: Opaque
+          stringData: "{{ evalforge_secrets }}"
+
+    - name: Configuration non secrète, lue dès les migrations
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ evalforge_namespace }}"
+        definition: "{{ item }}"
+        apply: true
+      loop: "{{ configuration }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    - name: Secrets des dépendances de test
+      when: dependencies | length > 0
+      no_log: true
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ evalforge_namespace }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: evalforge-dependencies
+            labels: { app.kubernetes.io/part-of: evalforge }
+          type: Opaque
+          stringData: "{{ evalforge_dependencies_secrets }}"
+
+    - name: PostgreSQL et RabbitMQ de test, prêts avant les migrations
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ evalforge_namespace }}"
+        definition: "{{ item }}"
+        # Pour un StatefulSet, le module attend que toutes les répliques soient prêtes (pas de condition à donner).
+        wait: "{{ item.kind == 'StatefulSet' }}"
+        wait_timeout: "{{ evalforge_wait_timeout }}"
+      loop: "{{ dependencies }}"
+      loop_control:
+        label: "{{ item.kind }}/{{ item.metadata.name }}"
+
+    - name: Attendre que les pods des dépendances soient prêts
+      when: dependencies | length > 0
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ evalforge_namespace }}"
+        label_selectors: ["app.kubernetes.io/name in (postgres, rabbitmq)"]
+        wait: true
+        wait_condition: { type: Ready, status: "True" }
+        wait_timeout: "{{ evalforge_wait_timeout }}"
+
+    - name: Supprimer le Job de migration précédent (son modèle de pod est immuable)
+      kubernetes.core.k8s:
+        state: absent
+        api_version: batch/v1
+        kind: Job
+        name: evalforge-migrate
+        namespace: "{{ evalforge_namespace }}"
+        delete_options: { propagationPolicy: Foreground }
+        wait: true
+
+    - name: Migrations Alembic
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ evalforge_namespace }}"
+        definition: "{{ item }}"
+        wait: true
+        wait_condition: { type: Complete, status: "True" }
+        wait_timeout: "{{ evalforge_wait_timeout }}"
+      loop: "{{ migrate_job }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    - name: API, worker, front et leurs règles réseau
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ evalforge_namespace }}"
+        definition: "{{ item }}"
+        apply: true
+      loop: "{{ application }}"
+      loop_control:
+        label: "{{ item.kind }}/{{ item.metadata.name }}"
+
+    - name: Attendre que chaque déploiement soit disponible
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ evalforge_namespace }}"
+        wait: true
+        wait_condition: { type: Available, status: "True" }
+        wait_timeout: "{{ evalforge_wait_timeout }}"
+      loop: "{{ application | selectattr('kind', 'equalto', 'Deployment') | list }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"

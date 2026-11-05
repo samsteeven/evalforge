@@ -1,11 +1,16 @@
-"""Vérifie qu'un run produit une seule trace qui traverse l'API, le worker et l'agent évalué, exportée en OTLP.
+"""Vérifie qu'un run d'agent va au bout, et qu'il produit une seule trace à travers l'API, le worker et l'agent.
 
 Prérequis : Jaeger (docker compose --profile observability up -d jaeger), le faux fournisseur, l'agent de support,
 l'API et un worker démarrés avec OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318.
 
     uv run python scripts/smoke_trace.py            # code 0 si la trace est complète, 1 sinon
+    uv run python scripts/smoke_trace.py --sans-trace    # le run seulement (images, Kubernetes)
+
+EVALFORGE_SMOKE_API (http://127.0.0.1:8000) et EVALFORGE_SMOKE_AGENT_URL (http://127.0.0.1:8200, l'adresse de l'agent
+vue depuis le worker) s'adaptent à la pile visée.
 """
 
+import os
 import sys
 import time
 import uuid
@@ -13,7 +18,8 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-API = "http://127.0.0.1:8000/api/v1"
+API = os.environ.get("EVALFORGE_SMOKE_API", "http://127.0.0.1:8000").rstrip("/") + "/api/v1"
+AGENT_URL = os.environ.get("EVALFORGE_SMOKE_AGENT_URL", "http://127.0.0.1:8200")
 JAEGER = "http://127.0.0.1:16686"
 EXPECTED_SERVICES = {"evalforge-api", "evalforge-worker", "evalforge-support-agent"}
 CASES = [
@@ -60,7 +66,7 @@ def run_once(client: httpx.Client) -> str:
             json={
                 "name": "Agent",
                 "provider_kind": "evalforge_agent",
-                "base_url": "http://127.0.0.1:8200",
+                "base_url": AGENT_URL,
                 "model_name": "v1",
             },
             headers=headers,
@@ -126,6 +132,9 @@ def find_trace(run_id: str) -> tuple[str, list[tuple[str, str]]] | None:
 def main() -> None:
     with httpx.Client(base_url=API, headers={"X-Requested-With": "EvalForge"}, timeout=10) as client:
         run_id = run_once(client)
+    print(f"Run {run_id} terminé")
+    if "--sans-trace" in sys.argv:
+        return
     deadline = time.monotonic() + 30  # l'export est groupé : quelques secondes de délai
     while time.monotonic() < deadline:
         found = find_trace(run_id)

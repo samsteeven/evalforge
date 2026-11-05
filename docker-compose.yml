@@ -36,6 +36,96 @@ services:
       timeout: 5s
       retries: 20
 
+  # --- Toute la plateforme depuis les images : docker compose --profile app up -d --build, puis http://localhost:8080
+  migrate:
+    image: evalforge-backend:local
+    build: .
+    profiles: [app]
+    command: ["alembic", "-c", "apps/api/alembic.ini", "upgrade", "head"]
+    environment: &backend-env
+      EVALFORGE_DATABASE_URL: postgresql+asyncpg://evalforge:evalforge@postgres:5432/evalforge
+      EVALFORGE_RABBITMQ_URL: amqp://evalforge:evalforge@rabbitmq:5672/
+      # Démonstration seulement : générer de vraies clés (voir .env.example) pour tout autre usage.
+      EVALFORGE_SECRET_KEY: ${EVALFORGE_SECRET_KEY:-dGVzdC1jbGUtZmVybmV0LWUyZS0wMTIzNDU2Nzg5YWI=}
+      EVALFORGE_JWT_SECRET_KEY: ${EVALFORGE_JWT_SECRET_KEY:-cle-de-demonstration-a-remplacer-0123456789}
+      EVALFORGE_COOKIE_SECURE: "false" # http en local ; true derrière HTTPS
+      EVALFORGE_ALLOW_PRIVATE_PROVIDER_URLS: "true" # faux fournisseur et agent sur le réseau de compose
+      EVALFORGE_ALLOW_PRIVATE_WEBHOOK_URLS: "true"
+      FORWARDED_ALLOW_IPS: "*"
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    image: evalforge-backend:local
+    profiles: [app]
+    environment: *backend-env
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+
+  worker:
+    image: evalforge-backend:local
+    profiles: [app]
+    command: ["evalforge-worker"]
+    environment: *backend-env
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+
+  frontend:
+    image: evalforge-frontend:local
+    build: frontend
+    profiles: [app]
+    environment:
+      EVALFORGE_API_UPSTREAM: http://api:8000
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:8080"
+    read_only: true
+    tmpfs: [/tmp, "/etc/nginx/conf.d:mode=1777"] # configuration rendue au démarrage, racine en lecture seule
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      api: { condition: service_healthy }
+
+  # Démonstration sans clé : faux fournisseur (http://fake-llm:8100/v1) et agent de support (http://support-agent:8200).
+  fake-llm:
+    image: evalforge-backend:local
+    profiles: [app]
+    command: ["python", "-c", "import uvicorn, runpy; m = runpy.run_path('scripts/fake_llm.py'); uvicorn.run(m['app'], host='0.0.0.0', port=8100)"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+
+  support-agent:
+    image: evalforge-backend:local
+    profiles: [app]
+    command: ["evalforge-support-agent"]
+    environment:
+      SUPPORT_AGENT_HOST: 0.0.0.0
+      SUPPORT_AGENT_LLM_BASE_URL: http://fake-llm:8100/v1
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+
   # Traces OpenTelemetry (OTLP) : docker compose --profile observability up -d jaeger, puis http://localhost:16686.
   jaeger:
     image: jaegertracing/jaeger:2.23.0

@@ -1,0 +1,16 @@
+# Le front reçoit tout le trafic et relaie /api : une seule Route, une seule origine pour le navigateur.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: evalforge
+  labels:
+    app.kubernetes.io/name: evalforge-frontend
+spec:
+  to:
+    kind: Service
+    name: evalforge-frontend
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
