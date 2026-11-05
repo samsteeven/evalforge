@@ -129,6 +129,8 @@ Traces : `docker compose --profile observability up -d jaeger`, puis `OTEL_EXPOR
 
 L'agent de démonstration : `uv run evalforge-support-agent` (port 8200, piloté par le faux fournisseur ; `SUPPORT_AGENT_LLM_MODEL=careless-agent` pour le pilote négligent, ou un vrai fournisseur via `SUPPORT_AGENT_LLM_BASE_URL`, `_MODEL`, `_API_KEY`), à déclarer comme « Agent EvalForge » sur `http://127.0.0.1:8200`. Pour recevoir les webhooks sur le poste : `EVALFORGE_ALLOW_PRIVATE_WEBHOOK_URLS=true` et `http://127.0.0.1:8100/webhooks/receive` (le faux fournisseur les garde, `GET /webhooks/received`).
 
+**Avec un vrai modèle** (Ollama en local, ou une API comme DeepSeek), pour l'évaluation, le juge et l'agent : voir [le guide](docs/guide-vrai-modele.md).
+
 Sans clé d'API : `uv run python scripts/fake_llm.py` lance un faux fournisseur sur `http://127.0.0.1:8100/v1` (modèles `grounded` et `vague`), à déclarer comme modèle « Compatible OpenAI » avec `EVALFORGE_ALLOW_PRIVATE_PROVIDER_URLS=true`. Un modèle local avec Ollama : type « Ollama », `http://localhost:11434/v1`, même réglage.
 
 ## Déployer
