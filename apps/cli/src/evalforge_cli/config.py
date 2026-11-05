@@ -5,6 +5,7 @@ Aucune clé d'API dans le fichier : seulement le nom de la variable d'environnem
 
 import os
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -28,12 +29,20 @@ class Pricing(Strict):
 
 class ModelConfig(Strict):
     name: str
+    # llm : un modèle compatible OpenAI ; agent : un agent qui respecte le contrat POST /v1/agent/run.
+    kind: Literal["llm", "agent"] = "llm"
     base_url: AnyHttpUrl
-    model: str
+    model: str | None = None
     api_key_env: str | None = None
     temperature: float = Field(default=0.0, ge=0, le=2)
     max_tokens: int | None = Field(default=None, ge=1)
     pricing: Pricing | None = None
+
+    @model_validator(mode="after")
+    def model_for_llm(self) -> "ModelConfig":
+        if self.kind == "llm" and not self.model:
+            raise ValueError(f"modèle « {self.name} » : champ model requis")
+        return self
 
     def api_key(self) -> str | None:
         if self.api_key_env is None:
@@ -83,6 +92,8 @@ class EvalConfig(Strict):
         if absent:
             group = METRICS[absent[0]].method
             raise ValueError(f"{', '.join(absent)} : bibliothèque {group} non installée (uv sync --group {group})")
+        if self.judge is not None and self.judge.kind == "agent":
+            raise ValueError("un agent ne peut pas servir de juge : choisir un modèle")
         if needs_judge(self.metrics) and self.judge is None:
             raise ValueError("ces métriques interrogent un modèle : section judge requise")
         stray = [name for name in self.thresholds if name not in self.metrics]

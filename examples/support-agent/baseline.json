@@ -1,0 +1,490 @@
+{
+  "title": "Évaluation locale : demandes-clients.json",
+  "generated_at": "2026-11-05T01:16:33.396904Z",
+  "status": "completed",
+  "config": {
+    "prompt_name": "message-brut",
+    "prompt_version": null,
+    "template": "{{ message }}",
+    "system": null,
+    "dataset_label": "demandes-clients.json (5 cas)",
+    "dataset_checksum": "4ffe19a374c9e74a58f11204997591ab7a53498b3cbd093f7deafdd3a2f49a98",
+    "models": [
+      {
+        "name": "Agent de support",
+        "model_name": "agent",
+        "provider": "http://127.0.0.1:8200/"
+      }
+    ],
+    "metrics": [
+      "tool_selection",
+      "tool_order",
+      "tool_arguments",
+      "step_efficiency",
+      "task_completion",
+      "contains_expected"
+    ],
+    "judge": null,
+    "execution": {
+      "max_concurrency": 5,
+      "timeout_seconds": 30.0
+    }
+  },
+  "models": [
+    {
+      "model": "Agent de support",
+      "performance": {
+        "total": 5,
+        "succeeded": 5,
+        "errors": 0,
+        "timeouts": 0,
+        "success_rate": 1.0,
+        "p50_latency_ms": 428.0556000012439,
+        "p95_latency_ms": 449.73989999562036,
+        "input_tokens": 1256,
+        "output_tokens": 179,
+        "cost_usd": null,
+        "cost_known_for": 0
+      },
+      "metrics": [
+        {
+          "name": "tool_selection",
+          "evaluated": 5,
+          "unavailable": 0,
+          "mean_score": 1.0,
+          "pass_rate": 1.0
+        },
+        {
+          "name": "tool_order",
+          "evaluated": 5,
+          "unavailable": 0,
+          "mean_score": 1.0,
+          "pass_rate": 1.0
+        },
+        {
+          "name": "tool_arguments",
+          "evaluated": 4,
+          "unavailable": 1,
+          "mean_score": 1.0,
+          "pass_rate": 1.0
+        },
+        {
+          "name": "step_efficiency",
+          "evaluated": 5,
+          "unavailable": 0,
+          "mean_score": 1.0,
+          "pass_rate": 1.0
+        },
+        {
+          "name": "task_completion",
+          "evaluated": 5,
+          "unavailable": 0,
+          "mean_score": 1.0,
+          "pass_rate": 1.0
+        },
+        {
+          "name": "contains_expected",
+          "evaluated": 5,
+          "unavailable": 0,
+          "mean_score": 1.0,
+          "pass_rate": 1.0
+        }
+      ]
+    }
+  ],
+  "results": [
+    {
+      "case_id": "retour-casque",
+      "model": "Agent de support",
+      "status": "success",
+      "output": "Votre commande CMD-1042 (Casque audio) est livrée. Retour possible sous 30 jours (emballage d'origine), remboursement sous 14 jours après réception.",
+      "error": null,
+      "latency_ms": 449.73989999562036,
+      "input_tokens": 306,
+      "output_tokens": 44,
+      "cost_usd": null,
+      "trajectory": [
+        {
+          "step": 1,
+          "tool": "find_order",
+          "arguments": {
+            "order_id": "CMD-1042"
+          },
+          "status": "success",
+          "result": {
+            "found": true,
+            "order_id": "CMD-1042",
+            "status": "livrée",
+            "delivered_at": "2026-10-28",
+            "category": "electronique",
+            "item": "Casque audio"
+          },
+          "error": null,
+          "latency_ms": 0.02
+        },
+        {
+          "step": 2,
+          "tool": "get_return_policy",
+          "arguments": {
+            "category": "electronique"
+          },
+          "status": "success",
+          "result": {
+            "category": "electronique",
+            "return_days": 30,
+            "condition": "emballage d'origine",
+            "refund": "sous 14 jours après réception"
+          },
+          "error": null,
+          "latency_ms": 0.02
+        }
+      ],
+      "stop_reason": "completed",
+      "metrics": [
+        {
+          "name": "tool_selection",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "tool_order",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "tool_arguments",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "step_efficiency",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "task_completion",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "contains_expected",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "case_id": "retour-pull",
+      "model": "Agent de support",
+      "status": "success",
+      "output": "Votre commande CMD-1043 (Pull en laine) est en transit. Retour possible sous 60 jours (étiquettes attachées), remboursement sous 7 jours après réception.",
+      "error": null,
+      "latency_ms": 440.02239999827,
+      "input_tokens": 310,
+      "output_tokens": 46,
+      "cost_usd": null,
+      "trajectory": [
+        {
+          "step": 1,
+          "tool": "find_order",
+          "arguments": {
+            "order_id": "CMD-1043"
+          },
+          "status": "success",
+          "result": {
+            "found": true,
+            "order_id": "CMD-1043",
+            "status": "en transit",
+            "delivered_at": null,
+            "category": "vetements",
+            "item": "Pull en laine"
+          },
+          "error": null,
+          "latency_ms": 0.1
+        },
+        {
+          "step": 2,
+          "tool": "get_return_policy",
+          "arguments": {
+            "category": "vetements"
+          },
+          "status": "success",
+          "result": {
+            "category": "vetements",
+            "return_days": 60,
+            "condition": "étiquettes attachées",
+            "refund": "sous 7 jours après réception"
+          },
+          "error": null,
+          "latency_ms": 0.01
+        }
+      ],
+      "stop_reason": "completed",
+      "metrics": [
+        {
+          "name": "tool_selection",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "tool_order",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "tool_arguments",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "step_efficiency",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "task_completion",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "contains_expected",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "case_id": "colis-abime",
+      "model": "Agent de support",
+      "status": "success",
+      "output": "Votre commande CMD-1044 (Lampe de bureau) est livrée. J'ai ouvert le ticket TCK-0001 en priorité haute.",
+      "error": null,
+      "latency_ms": 428.0556000012439,
+      "input_tokens": 287,
+      "output_tokens": 40,
+      "cost_usd": null,
+      "trajectory": [
+        {
+          "step": 1,
+          "tool": "find_order",
+          "arguments": {
+            "order_id": "CMD-1044"
+          },
+          "status": "success",
+          "result": {
+            "found": true,
+            "order_id": "CMD-1044",
+            "status": "livrée",
+            "delivered_at": "2026-09-02",
+            "category": "maison",
+            "item": "Lampe de bureau"
+          },
+          "error": null,
+          "latency_ms": 0.03
+        },
+        {
+          "step": 2,
+          "tool": "create_ticket",
+          "arguments": {
+            "order_id": "CMD-1044",
+            "reason": "Produit reçu endommagé",
+            "priority": "haute"
+          },
+          "status": "success",
+          "result": {
+            "ticket_id": "TCK-0001",
+            "order_id": "CMD-1044",
+            "reason": "Produit reçu endommagé",
+            "priority": "haute"
+          },
+          "error": null,
+          "latency_ms": 0.09
+        }
+      ],
+      "stop_reason": "completed",
+      "metrics": [
+        {
+          "name": "tool_selection",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "tool_order",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "tool_arguments",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "step_efficiency",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "task_completion",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "contains_expected",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "case_id": "commande-inconnue",
+      "model": "Agent de support",
+      "status": "success",
+      "output": "Je ne trouve pas la commande CMD-9999.",
+      "error": null,
+      "latency_ms": 343.6355000012554,
+      "input_tokens": 172,
+      "output_tokens": 23,
+      "cost_usd": null,
+      "trajectory": [
+        {
+          "step": 1,
+          "tool": "find_order",
+          "arguments": {
+            "order_id": "CMD-9999"
+          },
+          "status": "success",
+          "result": {
+            "found": false,
+            "order_id": "CMD-9999"
+          },
+          "error": null,
+          "latency_ms": 0.02
+        }
+      ],
+      "stop_reason": "completed",
+      "metrics": [
+        {
+          "name": "tool_selection",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "tool_order",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "tool_arguments",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "step_efficiency",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "task_completion",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "contains_expected",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "case_id": "demande-conseiller",
+      "model": "Agent de support",
+      "status": "success",
+      "output": "Un conseiller va reprendre la conversation d'ici 15 minutes environ.",
+      "error": null,
+      "latency_ms": 276.94099999644095,
+      "input_tokens": 181,
+      "output_tokens": 26,
+      "cost_usd": null,
+      "trajectory": [
+        {
+          "step": 1,
+          "tool": "escalate_to_human",
+          "arguments": {
+            "reason": "Le client demande à parler à un conseiller."
+          },
+          "status": "success",
+          "result": {
+            "queued": true,
+            "estimated_wait_minutes": 15,
+            "reason": "Le client demande à parler à un conseiller."
+          },
+          "error": null,
+          "latency_ms": 0.03
+        }
+      ],
+      "stop_reason": "completed",
+      "metrics": [
+        {
+          "name": "tool_selection",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "tool_order",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "tool_arguments",
+          "score": null,
+          "passed": null,
+          "reason": "pas d'arguments attendus"
+        },
+        {
+          "name": "step_efficiency",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "task_completion",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        },
+        {
+          "name": "contains_expected",
+          "score": 1.0,
+          "passed": true,
+          "reason": null
+        }
+      ]
+    }
+  ]
+}

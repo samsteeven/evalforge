@@ -58,6 +58,54 @@ jobs:
           uv run python -m evalforge_api.openapi_export frontend/openapi.json
           git diff --exit-code frontend/openapi.json
 
+  agent-quality-gate:
+    # Porte de qualité d'un agent : l'agent de support réel, en processus, piloté par le faux fournisseur.
+    # L'agent soigneux doit passer (code 0) ; le même agent piloté par un modèle négligent doit être bloqué (code 1).
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Dépendances
+        run: uv sync --locked
+
+      - name: Faux fournisseur
+        run: |
+          uv run python scripts/fake_llm.py 8100 &
+          until curl -sf http://127.0.0.1:8100/docs > /dev/null; do sleep 1; done
+
+      - name: Agent soigneux, porte franchie et pas de régression face à la baseline
+        run: |
+          SUPPORT_AGENT_LLM_MODEL=support-agent uv run evalforge-support-agent &
+          echo $! > agent.pid
+          until curl -sf http://127.0.0.1:8200/health > /dev/null; do sleep 1; done
+          uv run evalforge run examples/support-agent/evalforge.yaml             --baseline examples/support-agent/baseline.json --report rapport-agent.html
+          kill "$(cat agent.pid)"
+          while curl -sf http://127.0.0.1:8200/health > /dev/null; do sleep 1; done
+
+      - name: Agent négligent, bloqué par la porte
+        run: |
+          SUPPORT_AGENT_LLM_MODEL=careless-agent uv run evalforge-support-agent &
+          until curl -sf http://127.0.0.1:8200/health > /dev/null; do sleep 1; done
+          set +e
+          uv run evalforge run examples/support-agent/evalforge.yaml             --baseline examples/support-agent/baseline.json --report rapport-agent-negligent.html
+          code=$?
+          set -e
+          test "$code" -eq 1 || { echo "code de sortie attendu : 1, obtenu : $code"; exit 1; }
+          grep -q "escalate_to_human" rapport-agent-negligent.html
+
+      - name: Rapports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapports-agent
+          path: rapport-agent*.html
+          if-no-files-found: ignore
+
   adapters:
     # Ragas et DeepEval ne cohabitent pas : chacun dans son environnement, contre la vraie bibliothèque.
     runs-on: ubuntu-latest

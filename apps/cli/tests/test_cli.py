@@ -131,3 +131,92 @@ def test_la_liste_des_metriques():
 
     assert result.exit_code == 0
     assert "judge_faithfulness" in result.output
+
+
+AGENT_EXAMPLE = ROOT / "examples" / "support-agent"
+
+
+@pytest.fixture
+def agent_example(tmp_path: Path, monkeypatch):
+    """L'agent de support réel joignable sur 127.0.0.1:8200, piloté par le faux fournisseur en mémoire.
+
+    Renvoie une fonction qui choisit le modèle pilote : support-agent (soigneux) ou careless-agent.
+    """
+    from evalforge_llm import OpenAICompatibleProvider
+    from support_agent.agent import SupportAgent
+
+    shutil.copytree(AGENT_EXAMPLE, tmp_path / "example")
+    llm = httpx.AsyncClient(transport=httpx.ASGITransport(app=fake_llm_app()))
+    pilot = {"model": "support-agent"}
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        assert (request.url.host, request.url.port, request.url.path) == ("127.0.0.1", 8200, "/v1/agent/run")
+        agent = SupportAgent(OpenAICompatibleProvider(base_url="http://fake-llm/v1", client=llm), pilot["model"])
+        result = await agent.run(json.loads(request.content)["message"])
+        return httpx.Response(200, json=result.model_dump(mode="json"))
+
+    monkeypatch.setattr(runner, "default_transport", lambda allow_private: httpx.MockTransport(handle))
+
+    def use(model: str) -> Path:
+        pilot["model"] = model
+        return tmp_path / "example"
+
+    return use
+
+
+def test_l_agent_soigneux_passe_la_porte_et_reste_au_niveau_de_la_baseline(agent_example):
+    example = agent_example("support-agent")
+    data = example / "rapport.json"
+
+    result = invoke(
+        "run", str(example / "evalforge.yaml"), "--baseline", str(example / "baseline.json"), "--json", str(data)
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Porte de qualité franchie" in result.output
+    assert "Aucune régression" in result.output
+    payload = json.loads(data.read_text(encoding="utf-8"))
+    first = payload["results"][0]
+    assert [s["tool"] for s in first["trajectory"]] == ["find_order", "get_return_policy"]
+    assert first["stop_reason"] == "completed"
+
+
+def test_l_agent_negligent_est_bloque_par_la_porte(agent_example):
+    example = agent_example("careless-agent")
+    report = example / "rapport.html"
+
+    result = invoke(
+        "run", str(example / "evalforge.yaml"), "--baseline", str(example / "baseline.json"), "--report", str(report)
+    )
+
+    assert result.exit_code == 1, result.output
+    flat = " ".join(result.output.split())
+    assert "Agent de support : tool_selection à 20 %, minimum 100 %" in flat
+    assert "Régression Agent de support : tool_selection" in flat
+    assert "escalate_to_human" in report.read_text(encoding="utf-8")
+
+
+def test_un_agent_ne_peut_pas_servir_de_juge(agent_example):
+    example = agent_example("support-agent")
+    config = example / "evalforge.yaml"
+    config.write_text(
+        config.read_text(encoding="utf-8")
+        + "judge:\n  name: Juge agent\n  kind: agent\n  base_url: http://127.0.0.1:8200\n",
+        encoding="utf-8",
+    )
+
+    result = invoke("run", str(config))
+
+    assert result.exit_code == 2
+    assert "un agent ne peut pas servir de juge" in " ".join(result.output.split())
+
+
+def test_un_modele_llm_sans_nom_de_modele_est_refuse(agent_example):
+    example = agent_example("support-agent")
+    config = example / "evalforge.yaml"
+    config.write_text(config.read_text(encoding="utf-8").replace("    kind: agent\n", ""), encoding="utf-8")
+
+    result = invoke("run", str(config))
+
+    assert result.exit_code == 2
+    assert "champ model requis" in " ".join(result.output.split())

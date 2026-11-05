@@ -1,0 +1,28 @@
+# Porte de qualité d'un agent : trajectoire (outils, ordre, arguments, étapes) et réponse finale.
+# Démarrer le faux fournisseur et l'agent de support, puis lancer l'évaluation à la racine du dépôt :
+#   uv run python scripts/fake_llm.py
+#   uv run evalforge-support-agent          # SUPPORT_AGENT_LLM_MODEL=careless-agent pour l'agent négligent
+#   uv run evalforge run examples/support-agent/evalforge.yaml --baseline examples/support-agent/baseline.json
+dataset: demandes-clients.json
+
+prompt:
+  name: message-brut
+  template: "{{ message }}"
+
+models:
+  - name: Agent de support
+    kind: agent
+    base_url: http://127.0.0.1:8200
+
+metrics: [tool_selection, tool_order, tool_arguments, step_efficiency, task_completion, contains_expected]
+
+execution: { max_concurrency: 5, timeout_seconds: 30 }
+
+# Un agent qui se trompe d'outil ou d'argument agit sur de vraies données : aucune tolérance.
+thresholds:
+  tool_selection: 1.0
+  tool_arguments: 1.0
+  step_efficiency: 0.8
+  task_completion: 0.8
+
+allow_private_urls: true

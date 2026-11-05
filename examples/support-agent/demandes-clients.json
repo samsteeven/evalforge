@@ -1,0 +1,53 @@
+{
+  "cases": [
+    {
+      "id": "retour-casque",
+      "type": "agent",
+      "input": {"message": "Bonjour, commande CMD-1042 : comment faire un retour et être remboursé ?"},
+      "expected": {
+        "answer": "Retour possible sous 30 jours",
+        "tools": ["find_order", "get_return_policy"],
+        "arguments": {"find_order": {"order_id": "CMD-1042"}, "get_return_policy": {"category": "electronique"}}
+      }
+    },
+    {
+      "id": "retour-pull",
+      "type": "agent",
+      "input": {"message": "Je voudrais renvoyer le pull de ma commande CMD-1043, quel délai ?"},
+      "expected": {
+        "answer": "Retour possible sous 60 jours",
+        "tools": ["find_order", "get_return_policy"],
+        "arguments": {"find_order": {"order_id": "CMD-1043"}, "get_return_policy": {"category": "vetements"}}
+      }
+    },
+    {
+      "id": "colis-abime",
+      "type": "agent",
+      "input": {"message": "Ma commande CMD-1044 est arrivée abîmée."},
+      "expected": {
+        "answer": "ticket",
+        "tools": ["find_order", "create_ticket"],
+        "arguments": {"find_order": {"order_id": "CMD-1044"}, "create_ticket": {"order_id": "CMD-1044", "priority": "haute"}}
+      }
+    },
+    {
+      "id": "commande-inconnue",
+      "type": "agent",
+      "input": {"message": "Où en est ma commande CMD-9999 ?"},
+      "expected": {
+        "answer": "Je ne trouve pas la commande CMD-9999",
+        "tools": ["find_order"],
+        "arguments": {"find_order": {"order_id": "CMD-9999"}}
+      }
+    },
+    {
+      "id": "demande-conseiller",
+      "type": "agent",
+      "input": {"message": "Je veux parler à un conseiller humain."},
+      "expected": {
+        "answer": "Un conseiller va reprendre la conversation",
+        "tools": ["escalate_to_human"]
+      }
+    }
+  ]
+}

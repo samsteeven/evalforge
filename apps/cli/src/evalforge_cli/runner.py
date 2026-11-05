@@ -13,7 +13,7 @@ from evalforge_engine.datasets import load_cases
 from evalforge_engine.evaluators import JudgeModel, build_evaluators
 from evalforge_engine.reporting import Report, ReportConfig, ReportModel
 from evalforge_engine.scoring import MetricRecord, ModelReport, ResultRecord, cost_usd, summarize_by_model
-from evalforge_engine.targets import llm_target
+from evalforge_engine.targets import agent_target, llm_target
 from evalforge_llm import OpenAICompatibleProvider
 from evalforge_llm.network import SafeTransport, check_url
 
@@ -72,14 +72,21 @@ async def run_evaluation(config: EvalConfig, transport_factory: TransportFactory
         evaluators = build_evaluators(config.metrics, judge)
         items = []
         for model in config.models:
-            target = llm_target(
-                _provider(model, client, config),
-                model=model.model,
-                template=config.prompt.template or "",
-                system=config.prompt.system,
-                temperature=model.temperature,
-                max_tokens=model.max_tokens,
-            )
+            if model.kind == "agent":
+                # L'agent reçoit le prompt rendu et renvoie sa réponse et sa trajectoire.
+                check_url(str(model.base_url), allow_private=config.allow_private_urls)
+                target = agent_target(
+                    client, base_url=str(model.base_url), name=model.name, template=config.prompt.template or ""
+                )
+            else:
+                target = llm_target(
+                    _provider(model, client, config),
+                    model=model.model,
+                    template=config.prompt.template or "",
+                    system=config.prompt.system,
+                    temperature=model.temperature,
+                    max_tokens=model.max_tokens,
+                )
             items.extend(WorkItem((case.id, model.name), case, target) for case in cases)
 
         records = []
@@ -114,6 +121,8 @@ async def run_evaluation(config: EvalConfig, transport_factory: TransportFactory
                         MetricRecord(name=m.name, score=m.score, passed=m.passed, reason=m.reason)
                         for m in outcome.metrics
                     ],
+                    trajectory=output.trajectory if output else None,
+                    stop_reason=output.stop_reason if output else None,
                 )
             )
 
@@ -132,7 +141,9 @@ async def run_evaluation(config: EvalConfig, transport_factory: TransportFactory
             system=config.prompt.system,
             dataset_label=f"{config.dataset.name} ({len(cases)} cas)",
             dataset_checksum=digest,
-            models=[ReportModel(name=m.name, model_name=m.model, provider=str(m.base_url)) for m in config.models],
+            models=[
+                ReportModel(name=m.name, model_name=m.model or "agent", provider=str(m.base_url)) for m in config.models
+            ],
             metrics=config.metrics,
             judge=f"{config.judge.name} ({config.judge.model})" if config.judge else None,
             execution=config.execution.model_dump(),
