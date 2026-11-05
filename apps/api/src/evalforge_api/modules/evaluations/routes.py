@@ -9,8 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from evalforge_api.core.database import SessionDep, utcnow
+from evalforge_api.core.database import SessionDep
 from evalforge_api.core.tenancy import EditorDep, WorkspaceDep, not_found
+from evalforge_api.messaging.events import EVALUATION_REQUESTED, EvaluationRequested
+from evalforge_api.messaging.outbox import enqueue, utcnow
 from evalforge_api.modules.datasets.models import Dataset, TestCase
 from evalforge_api.modules.datasets.routes import get_dataset_version
 from evalforge_api.modules.evaluations.models import EvaluationResult, EvaluationRun, MetricResult, RunStatus
@@ -156,8 +158,18 @@ async def create_run(
         completed_items=0,
     )
     session.add(run)
+    await session.flush()
+    # Le run et sa demande d'exécution sont validés ensemble : un run en file a toujours son message.
+    enqueue(
+        session,
+        EVALUATION_REQUESTED,
+        EvaluationRequested(
+            run_id=run.id, experiment_id=experiment.id, dataset_version_id=version.id, workspace_id=workspace_id
+        ).model_dump(mode="json"),
+        correlation_id=str(run.id),
+    )
     await session.commit()
-    request.app.state.scheduler.schedule(run.id)
+    request.app.state.outbox.wake()
     return RunCreated(run_id=run.id, status=run.status, created_at=run.created_at)
 
 

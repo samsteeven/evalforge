@@ -1,21 +1,29 @@
-"""Exécution d'un run, dans le processus de l'API.
+"""Exécution d'un run par un worker : prise avec bail, reprise sans doublon, fin atomique avec son événement.
 
-Provisoire : un run en cours est perdu si l'API s'arrête (il est alors marqué « interrupted » au démarrage
-suivant). L'incrément « asynchronisme » le remplace par une outbox, RabbitMQ et des workers séparés.
+Cycle d'un run :
+    queued ──claim──► running (bail renouvelé par battements) ──► completed | failed
+                         │ worker arrêté : bail expiré, message relivré par RabbitMQ
+                         └──claim──► running chez un autre worker, qui reprend les réponses manquantes
 """
 
 import asyncio
+import contextlib
 import logging
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator
+from datetime import timedelta
+from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from evalforge_api.core.database import utcnow
 from evalforge_api.core.secrets import SecretBox
+from evalforge_api.messaging.events import EVALUATION_COMPLETED, EVALUATION_FAILED
+from evalforge_api.messaging.models import ProcessedMessage
+from evalforge_api.messaging.outbox import enqueue
 from evalforge_api.modules.datasets.models import TestCase
 from evalforge_api.modules.evaluations.models import EvaluationResult, EvaluationRun, MetricResult, RunStatus
 from evalforge_api.modules.providers.factory import ProviderFactory
@@ -28,9 +36,14 @@ from evalforge_llm import LLMProvider
 
 log = logging.getLogger(__name__)
 
-INTERRUPTED_MESSAGE = "L'API s'est arrêtée pendant l'exécution ; relancez le run."
-
 SessionFactory = async_sessionmaker[AsyncSession]
+
+
+class Claim(StrEnum):
+    CLAIMED = "claimed"  # ce worker exécute le run
+    BUSY = "busy"  # un autre worker vivant l'exécute
+    DONE = "done"  # terminé ou en échec : rien à faire
+    MISSING = "missing"
 
 
 def to_engine_case(case: TestCase) -> EvaluationCase:
@@ -44,86 +57,141 @@ def to_engine_case(case: TestCase) -> EvaluationCase:
     )
 
 
+async def claim_run(session_factory: SessionFactory, run_id: uuid.UUID, worker_id: str, lease: timedelta) -> Claim:
+    """Prend le run s'il est en file, ou si le bail de son worker a expiré. Une seule requête : pas de course."""
+    now = utcnow()
+    async with session_factory() as session:
+        claimed = await session.scalar(
+            update(EvaluationRun)
+            .where(
+                EvaluationRun.id == run_id,
+                or_(
+                    EvaluationRun.status == RunStatus.QUEUED,
+                    and_(EvaluationRun.status == RunStatus.RUNNING, EvaluationRun.heartbeat_at < now - lease),
+                ),
+            )
+            .values(
+                status=RunStatus.RUNNING,
+                worker_id=worker_id,
+                heartbeat_at=now,
+                attempts=EvaluationRun.attempts + 1,
+            )
+            .returning(EvaluationRun.id)
+        )
+        if claimed is not None:
+            # Date de premier démarrage conservée lors d'une reprise.
+            await session.execute(
+                update(EvaluationRun)
+                .where(EvaluationRun.id == run_id, EvaluationRun.started_at.is_(None))
+                .values(started_at=now)
+            )
+            await session.commit()
+            return Claim.CLAIMED
+        status = await session.scalar(select(EvaluationRun.status).where(EvaluationRun.id == run_id))
+    if status is None:
+        return Claim.MISSING
+    return Claim.BUSY if status == RunStatus.RUNNING else Claim.DONE
+
+
+@contextlib.asynccontextmanager
+async def heartbeat(
+    session_factory: SessionFactory, run_id: uuid.UUID, worker_id: str, every_seconds: float
+) -> AsyncIterator[None]:
+    """Renouvelle le bail tant que le run s'exécute ; s'arrête avec lui."""
+
+    async def beat() -> None:
+        while True:
+            await asyncio.sleep(every_seconds)
+            async with session_factory() as session:
+                await session.execute(
+                    update(EvaluationRun)
+                    .where(EvaluationRun.id == run_id, EvaluationRun.worker_id == worker_id)
+                    .values(heartbeat_at=utcnow())
+                )
+                await session.commit()
+
+    task = asyncio.create_task(beat(), name=f"heartbeat-{run_id}")
+    try:
+        yield
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
 async def execute_run(
     run_id: uuid.UUID, *, session_factory: SessionFactory, provider_factory: ProviderFactory, secret_box: SecretBox
 ) -> None:
+    """Exécute les réponses qui manquent encore. Une erreur remonte : le worker décide de reprendre ou d'abandonner."""
     async with session_factory() as session:
-        run = await session.get(EvaluationRun, run_id, with_for_update=True)
-        if run is None or run.status != RunStatus.QUEUED:
-            return  # déjà pris en charge : ne jamais exécuter deux fois le même run
-        run.status = RunStatus.RUNNING
-        run.started_at = utcnow()
-        await session.commit()
-        configuration, execution, dataset_version_id = run.configuration, run.execution, run.dataset_version_id
-
-    # Tout ce qui suit le passage en « running » est couvert : une erreur termine le run en « failed ».
-    try:
-        async with session_factory() as session:
-            cases = list(
-                await session.scalars(
-                    select(TestCase)
-                    .where(TestCase.dataset_version_id == dataset_version_id)
-                    .order_by(TestCase.position)
-                )
+        run = await session.get(EvaluationRun, run_id)
+        configuration, execution = run.configuration, run.execution
+        cases = list(
+            await session.scalars(
+                select(TestCase)
+                .where(TestCase.dataset_version_id == run.dataset_version_id)
+                .order_by(TestCase.position)
             )
-            judge_config = configuration.get("judge")  # absent des runs créés avant le juge
-            model_ids = [uuid.UUID(model["id"]) for model in configuration["models"]]
-            if judge_config:
-                model_ids.append(uuid.UUID(judge_config["id"]))
-            rows = await session.execute(
-                select(ModelConfiguration.id, ModelConfiguration.api_key_encrypted).where(
-                    ModelConfiguration.id.in_(model_ids)
-                )
-            )
-            encrypted_keys = {model_id: encrypted for model_id, encrypted in rows}
-
-        def provider_for(model: dict[str, Any]) -> LLMProvider:
-            encrypted = encrypted_keys.get(uuid.UUID(model["id"]))
-            return provider_factory(
-                provider_kind=model["provider_kind"],
-                base_url=model["base_url"],
-                api_key=secret_box.decrypt(encrypted) if encrypted else None,
-            )
-
-        judge = (
-            JudgeModel(
-                provider_for(judge_config),
-                judge_config["model_name"],
-                temperature=judge_config["parameters"]["temperature"],
-            )
-            if judge_config
-            else None
         )
-        items: list[WorkItem] = []
-        pricing: dict[uuid.UUID, dict[str, Any] | None] = {}
-        for model in configuration["models"]:
-            model_id = uuid.UUID(model["id"])
-            provider = provider_for(model)
-            target = llm_target(
-                provider,
-                model=model["model_name"],
-                template=configuration["prompt"]["template"],
-                system=configuration["prompt"]["system"],
-                temperature=model["parameters"]["temperature"],
-                max_tokens=model["parameters"]["max_tokens"],
+        # Reprise : ce qu'un worker précédent a déjà enregistré n'est ni recalculé ni refacturé.
+        rows = await session.execute(
+            select(EvaluationResult.test_case_id, EvaluationResult.model_configuration_id).where(
+                EvaluationResult.run_id == run_id
             )
-            pricing[model_id] = model["pricing"]
-            items.extend(WorkItem((case.id, model_id), to_engine_case(case), target) for case in cases)
-
-        outcomes = evaluate_cases(
-            items,
-            build_evaluators(configuration["metrics"], judge),
-            max_concurrency=execution["max_concurrency"],
-            timeout_seconds=execution["timeout_seconds"],
         )
-        async for outcome in outcomes:
-            await _persist(session_factory, run_id, outcome, pricing)
-        await _finish(session_factory, run_id, RunStatus.COMPLETED, None)
-    except asyncio.CancelledError:
-        raise  # arrêt de l'API : le run reste « running » et sera marqué interrompu au démarrage suivant
-    except Exception as error:
-        log.exception("Run %s en échec", run_id)
-        await _finish(session_factory, run_id, RunStatus.FAILED, f"{type(error).__name__} : {error}")
+        done = {(case_id, model_id) for case_id, model_id in rows}
+        judge_config = configuration.get("judge")
+        model_ids = [uuid.UUID(model["id"]) for model in configuration["models"]]
+        if judge_config:
+            model_ids.append(uuid.UUID(judge_config["id"]))
+        rows = await session.execute(
+            select(ModelConfiguration.id, ModelConfiguration.api_key_encrypted).where(
+                ModelConfiguration.id.in_(model_ids)
+            )
+        )
+        encrypted_keys = {model_id: encrypted for model_id, encrypted in rows}
+
+    def provider_for(model: dict[str, Any]) -> LLMProvider:
+        encrypted = encrypted_keys.get(uuid.UUID(model["id"]))
+        return provider_factory(
+            provider_kind=model["provider_kind"],
+            base_url=model["base_url"],
+            api_key=secret_box.decrypt(encrypted) if encrypted else None,
+        )
+
+    judge = (
+        JudgeModel(provider_for(judge_config), judge_config["model_name"], judge_config["parameters"]["temperature"])
+        if judge_config
+        else None
+    )
+    items: list[WorkItem] = []
+    pricing: dict[uuid.UUID, dict[str, Any] | None] = {}
+    for model in configuration["models"]:
+        model_id = uuid.UUID(model["id"])
+        target = llm_target(
+            provider_for(model),
+            model=model["model_name"],
+            template=configuration["prompt"]["template"],
+            system=configuration["prompt"]["system"],
+            temperature=model["parameters"]["temperature"],
+            max_tokens=model["parameters"]["max_tokens"],
+        )
+        pricing[model_id] = model["pricing"]
+        items.extend(
+            WorkItem((case.id, model_id), to_engine_case(case), target)
+            for case in cases
+            if (case.id, model_id) not in done
+        )
+    if done:
+        log.info("Run %s repris : %d réponses déjà enregistrées, %d à produire", run_id, len(done), len(items))
+
+    outcomes = evaluate_cases(
+        items,
+        build_evaluators(configuration["metrics"], judge),
+        max_concurrency=execution["max_concurrency"],
+        timeout_seconds=execution["timeout_seconds"],
+    )
+    async for outcome in outcomes:
+        await _persist(session_factory, run_id, outcome, pricing)
 
 
 async def _persist(
@@ -186,39 +254,58 @@ async def _persist(
         await session.commit()
 
 
-async def _finish(session_factory: SessionFactory, run_id: uuid.UUID, status: RunStatus, error: str | None) -> None:
+async def finish_run(
+    session_factory: SessionFactory,
+    run_id: uuid.UUID,
+    *,
+    status: RunStatus,
+    error: str | None,
+    message_id: uuid.UUID,
+    consumer: str,
+) -> None:
+    """Fin du run, message marqué traité et événement de fin : la même transaction, tout ou rien."""
+    async with session_factory() as session:
+        run = await session.get(EvaluationRun, run_id, with_for_update=True)
+        run.status = status
+        run.error = error
+        run.finished_at = utcnow()
+        run.heartbeat_at = None
+        await session.execute(
+            insert(ProcessedMessage).values(message_id=message_id, consumer=consumer).on_conflict_do_nothing()
+        )
+        enqueue(
+            session,
+            EVALUATION_COMPLETED if status == RunStatus.COMPLETED else EVALUATION_FAILED,
+            {
+                "run_id": str(run_id),
+                "experiment_id": str(run.experiment_id),
+                "workspace_id": str(run.workspace_id),
+                "status": status.value,
+                "completed_items": run.completed_items,
+                "total_items": run.total_items,
+                "error": error,
+            },
+            correlation_id=str(run_id),
+        )
+        await session.commit()
+
+
+async def release_run(session_factory: SessionFactory, run_id: uuid.UUID, worker_id: str, error: str) -> None:
+    """Avant une nouvelle tentative : le run repasse en file, prêt à être repris par n'importe quel worker."""
     async with session_factory() as session:
         await session.execute(
             update(EvaluationRun)
-            .where(EvaluationRun.id == run_id)
-            .values(status=status, error=error, finished_at=utcnow())
+            .where(EvaluationRun.id == run_id, EvaluationRun.worker_id == worker_id)
+            .values(status=RunStatus.QUEUED, heartbeat_at=None, worker_id=None, error=error)
         )
         await session.commit()
 
 
-async def interrupt_abandoned_runs(session_factory: SessionFactory) -> int:
-    """Au démarrage : un run resté en file ou en cours a été abandonné par un processus arrêté."""
+async def already_processed(session_factory: SessionFactory, message_id: uuid.UUID, consumer: str) -> bool:
     async with session_factory() as session:
-        result = await session.execute(
-            update(EvaluationRun)
-            .where(EvaluationRun.status.in_([RunStatus.QUEUED, RunStatus.RUNNING]))
-            .values(status=RunStatus.INTERRUPTED, error=INTERRUPTED_MESSAGE, finished_at=utcnow())
+        found = await session.scalar(
+            select(ProcessedMessage.message_id).where(
+                ProcessedMessage.message_id == message_id, ProcessedMessage.consumer == consumer
+            )
         )
-        await session.commit()
-        return result.rowcount
-
-
-class RunScheduler:
-    def __init__(self, runner: Callable[[uuid.UUID], Awaitable[None]]) -> None:
-        self._runner = runner
-        self._tasks: set[asyncio.Task[None]] = set()
-
-    def schedule(self, run_id: uuid.UUID) -> None:
-        task = asyncio.create_task(self._runner(run_id), name=f"run-{run_id}")
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
-
-    async def shutdown(self) -> None:
-        for task in self._tasks:
-            task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        return found is not None

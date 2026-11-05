@@ -34,6 +34,10 @@ class EvaluationRun(IdMixin, CreatedAtMixin, Base):
     error: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Bail du worker qui exécute le run : renouvelé par battements. Un bail expiré permet à un autre de reprendre.
+    worker_id: Mapped[str | None] = mapped_column(String(100))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class EvaluationResult(IdMixin, CreatedAtMixin, Base):

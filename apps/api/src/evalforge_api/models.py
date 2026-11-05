@@ -1,6 +1,7 @@
 """Tous les modèles, pour Alembic : un module qui n'est pas importé ici n'a pas de table."""
 
 from evalforge_api.core.database import Base
+from evalforge_api.messaging.models import OutboxEvent, ProcessedMessage
 from evalforge_api.modules.datasets.models import Dataset, DatasetVersion, TestCase
 from evalforge_api.modules.evaluations.models import EvaluationResult, EvaluationRun, MetricResult
 from evalforge_api.modules.experiments.models import Experiment, ExperimentModel
@@ -21,6 +22,8 @@ __all__ = [
     "ExperimentModel",
     "MetricResult",
     "ModelConfiguration",
+    "OutboxEvent",
+    "ProcessedMessage",
     "PromptVersion",
     "RefreshToken",
     "TestCase",

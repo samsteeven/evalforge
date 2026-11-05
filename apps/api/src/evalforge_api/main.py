@@ -1,62 +1,48 @@
-import functools
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-import httpx
 from fastapi import APIRouter, FastAPI
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from evalforge_api.core.config import Settings
 from evalforge_api.core.secrets import SecretBox
 from evalforge_api.core.security import AccessTokens, Passwords
+from evalforge_api.messaging.outbox import OutboxPublisher
+from evalforge_api.messaging.topology import Topology
 from evalforge_api.modules.datasets.routes import router as datasets
 from evalforge_api.modules.evaluations.routes import router as evaluations
-from evalforge_api.modules.evaluations.runner import RunScheduler, execute_run, interrupt_abandoned_runs
 from evalforge_api.modules.experiments.routes import router as experiments
 from evalforge_api.modules.identity.routes import router as identity
 from evalforge_api.modules.projects.routes import router as projects
 from evalforge_api.modules.prompts.routes import router as prompts
-from evalforge_api.modules.providers.factory import ProviderFactory, http_provider_factory
 from evalforge_api.modules.providers.routes import router as providers
 from evalforge_api.modules.workspaces.routes import router as workspaces
-from evalforge_llm.network import SafeTransport
 
 log = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None, provider_factory: ProviderFactory | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """L'API n'exécute aucun run : elle les enregistre avec leur événement (outbox), les workers les exécutent."""
     settings = settings or Settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = create_async_engine(settings.database_url, pool_pre_ping=True)
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
-        # Tous les appels aux fournisseurs passent par le contrôle SSRF à la connexion.
-        http_client = httpx.AsyncClient(
-            transport=SafeTransport(allow_private=settings.allow_private_provider_urls), follow_redirects=False
+        publisher = OutboxPublisher(
+            session_factory,
+            settings.rabbitmq_url,
+            Topology(settings.rabbitmq_prefix),
+            interval_seconds=settings.outbox_interval_seconds,
         )
-        factory = provider_factory or http_provider_factory(
-            http_client, timeout_seconds=settings.provider_timeout_seconds
-        )
-        interrupted = await interrupt_abandoned_runs(session_factory)
-        if interrupted:
-            log.warning("%d run(s) abandonné(s) par un arrêt précédent, marqué(s) interrompu(s)", interrupted)
-        scheduler = RunScheduler(
-            functools.partial(
-                execute_run,
-                session_factory=session_factory,
-                provider_factory=factory,
-                secret_box=app.state.secret_box,
-            )
-        )
+        await publisher.start()
         app.state.session_factory = session_factory
-        app.state.scheduler = scheduler
+        app.state.outbox = publisher
         try:
             yield
         finally:
-            await scheduler.shutdown()
-            await http_client.aclose()
+            await publisher.stop()
             await engine.dispose()
 
     app = FastAPI(
