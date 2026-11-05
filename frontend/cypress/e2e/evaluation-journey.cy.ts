@@ -98,6 +98,43 @@ describe('Évaluation de bout en bout', () => {
         .and('contain', 'Juge (judge)')
         .and('contain', 'inconnu')
     })
+
+    // Baseline : ce run devient la référence du projet
+    cy.findByRole('button', { name: 'Adopter comme baseline' }).click()
+    cy.findByText('Ce run est la baseline du projet').should('be.visible')
+
+    // Nouveau prompt, sans le contexte : le modèle sourcé ne trouve plus l'information
+    cy.findByRole('link', { name: /Sourcé contre vague/ }).click()
+    cy.findByRole('tab', { name: 'Prompts' }).click()
+    cy.findByLabelText(/^Gabarit/)
+      .clear()
+      .type('Réponds en une phrase.\nQuestion : {{ question }}', { parseSpecialCharSequences: false })
+    cy.findByRole('button', { name: 'Enregistrer la version' }).click()
+    cy.findByText('Version 2 enregistrée.').should('be.visible')
+
+    cy.findByRole('tab', { name: 'Expériences' }).click()
+    cy.findByLabelText(/^Nom de l'expérience/).type('Prompt sans contexte')
+    cy.findByLabelText(/^Version du prompt/).select('faq v2')
+    cy.findByRole('checkbox', { name: /Modèle sourcé/ }).check()
+    cy.findByRole('checkbox', { name: /Modèle vague/ }).check()
+    cy.findByRole('checkbox', { name: /^exact_match/ }).check()
+    cy.findByRole('checkbox', { name: /^contains_expected/ }).check()
+    cy.findByRole('button', { name: "Créer l'expérience" }).click()
+    cy.findByText('Prompt sans contexte').parents('section').first().within(() => {
+      cy.findByRole('button', { name: 'Lancer le run' }).click()
+    })
+
+    // La comparaison à la baseline signale la régression, cas par cas
+    cy.findByText('Terminé', { timeout: 30_000 }).should('be.visible')
+    cy.findByText(/^Régression détectée face à la baseline/).should('be.visible')
+    cy.findByRole('region', { name: 'Comparaison avec la baseline' })
+      .findAllByTestId('comparison-row')
+      .first()
+      .should('contain.text', 'Modèle sourcé')
+      .and('contain.text', '100 %')
+      .and('contain.text', '-100 pts')
+      .and('contain.text', '5 / 0')
+    shoot('baseline-regression')
   })
 
   it('sans session, renvoie vers la connexion', () => {

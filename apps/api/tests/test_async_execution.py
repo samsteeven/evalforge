@@ -158,6 +158,36 @@ async def test_un_worker_arrete_en_plein_run_est_relaye_sans_refaire_le_travail(
     assert done_before >= 2
 
 
+async def test_un_doublon_recu_pendant_l_execution_ne_lance_pas_une_seconde_execution(
+    app_factory, worker_factory, settings, fake_llm
+):
+    fake_llm.answers = dict(QUESTIONS)
+    async with app_factory(with_worker=False) as client:
+        await worker_factory(worker_id="worker-a")
+        data = await seed(client, models=("slow",))
+        run_id = await start_run(client, data, max_concurrency=1)
+        async with asyncio.timeout(10):
+            while (await run_row(client, run_id))["status"] != "running":
+                await asyncio.sleep(0.05)
+
+        # Le même message arrive à un second worker pendant que le premier travaille (bail valide).
+        await worker_factory(worker_id="worker-b")
+        requested = (await outbox_events(client, run_id))[0]
+        connection = await aio_pika.connect(settings.rabbitmq_url)
+        async with connection:
+            channel = await connection.channel(publisher_confirms=True)
+            exchange = await Topology(settings.rabbitmq_prefix).declare(channel)
+            await exchange.publish(to_message(requested.envelope), routing_key="evaluation.requested")
+
+        run = await wait_for_run(client, data["headers"], run_id, timeout=30)
+        final = await run_row(client, run_id)
+
+    assert run["status"] == "completed"
+    # Une seule exécution : chaque cas n'est demandé qu'une fois, et le run n'a été pris qu'une fois.
+    assert fake_llm.calls("slow") == 5
+    assert (final["worker_id"], final["attempts"]) == ("worker-a", 1)
+
+
 async def test_une_erreur_persistante_mene_a_la_file_morte_et_a_l_echec(
     app_factory, worker_factory, settings, fake_llm
 ):

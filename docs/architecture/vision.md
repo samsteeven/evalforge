@@ -125,12 +125,12 @@ Seuils configurables par projet ; une métrique indisponible se distingue d'une 
 
 | Scénario | État |
 |---|---|
-| Une évaluation n'est pas perdue si l'API redémarre après avoir enregistré son événement d'outbox | incrément 4 ; aujourd'hui le run est marqué interrompu |
-| Un événement consommé deux fois ne crée pas deux résultats | unicité du résultat et état du run vérifiés ; consommation RabbitMQ à l'incrément 4 |
+| Une évaluation n'est pas perdue si l'API redémarre après avoir enregistré son événement d'outbox | vérifié : l'événement attend dans l'outbox et part au retour du courtier |
+| Un événement consommé deux fois ne crée pas deux résultats | vérifié : message rejoué contre un vrai RabbitMQ, rien n'est refait |
 | Un 429 du fournisseur déclenche une reprise contrôlée | vérifié |
-| Un worker interrompu permet de reprendre ou de marquer le run interrompu | marquage vérifié |
+| Un worker interrompu permet de reprendre ou de marquer le run interrompu | vérifié : un autre worker reprend les seules réponses manquantes |
 | Un espace de travail n'accède jamais aux données d'un autre | vérifié |
-| Un changement de prompt se compare à une baseline | versions vérifiées ; baseline à l'incrément 4 |
+| Un changement de prompt se compare à une baseline | vérifié : comparaison appariée, cas cassés, McNemar, dans l'API, l'interface et la CLI |
 | Une métrique indisponible n'est pas transformée en zéro | vérifié |
 
 ## Démonstration finale visée

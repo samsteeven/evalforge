@@ -455,6 +455,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/baseline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Baseline */
+        get: operations["read_baseline_api_v1_projects__project_id__baseline_get"];
+        /**
+         * Set Baseline
+         * @description Adopter un run comme référence : réservé à qui peut évaluer (membre et au-dessus).
+         */
+        put: operations["set_baseline_api_v1_projects__project_id__baseline_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/comparison": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare To Baseline
+         * @description Compare un run à la baseline : mêmes cas (même empreinte de jeu), modèles appariés par leur nom.
+         */
+        get: operations["compare_to_baseline_api_v1_runs__run_id__comparison_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -476,10 +517,89 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** BaselineIn */
+        BaselineIn: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Tolerance
+             * @default 0.02
+             */
+            tolerance: number;
+        };
+        /** BaselineOut */
+        BaselineOut: {
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /** Tolerance */
+            tolerance: number;
+            /**
+             * Set At
+             * Format: date-time
+             */
+            set_at: string;
+        };
         /** Body_import_version_api_v1_datasets__dataset_id__versions_import_post */
         Body_import_version_api_v1_datasets__dataset_id__versions_import_post: {
             /** File */
             file: string;
+        };
+        /** CaseChange */
+        CaseChange: {
+            /** Case Id */
+            case_id: string;
+            /** Model */
+            model: string;
+            /** Metric */
+            metric: string;
+            /** Change */
+            change: string;
+            /** Baseline Reason */
+            baseline_reason?: string | null;
+            /** Candidate Reason */
+            candidate_reason?: string | null;
+        };
+        /** Comparison */
+        Comparison: {
+            /** Tolerance */
+            tolerance: number;
+            /** Regressed */
+            regressed: boolean;
+            /** Models */
+            models: components["schemas"]["ModelDelta"][];
+            /** Changes */
+            changes: components["schemas"]["CaseChange"][];
+            /** Only In Baseline */
+            only_in_baseline: string[];
+            /** Only In Candidate */
+            only_in_candidate: string[];
+        };
+        /** ComparisonOut */
+        ComparisonOut: {
+            /**
+             * Baseline Run Id
+             * Format: uuid
+             */
+            baseline_run_id: string;
+            /**
+             * Candidate Run Id
+             * Format: uuid
+             */
+            candidate_run_id: string;
+            /** Dataset Checksum */
+            dataset_checksum: string;
+            comparison: components["schemas"]["Comparison"];
         };
         /** DatasetCreate */
         DatasetCreate: {
@@ -674,6 +794,31 @@ export interface components {
             /** Role */
             role: string;
         };
+        /** MetricDelta */
+        MetricDelta: {
+            /** Name */
+            name: string;
+            /** Baseline Rate */
+            baseline_rate: number | null;
+            /** Candidate Rate */
+            candidate_rate: number | null;
+            /** Delta */
+            delta: number | null;
+            /** Paired */
+            paired: number;
+            /** Fixed */
+            fixed: number;
+            /** Broken */
+            broken: number;
+            /** P Value */
+            p_value: number | null;
+            /** Significant */
+            significant: boolean;
+            /** Regressed */
+            regressed: boolean;
+            /** Improved */
+            improved: boolean;
+        };
         /** MetricInfo */
         MetricInfo: {
             /** Name */
@@ -764,6 +909,21 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** ModelDelta */
+        ModelDelta: {
+            /** Model */
+            model: string;
+            /** Metrics */
+            metrics: components["schemas"]["MetricDelta"][];
+            /** Baseline Success Rate */
+            baseline_success_rate: number | null;
+            /** Candidate Success Rate */
+            candidate_success_rate: number | null;
+            /** Baseline P95 Latency Ms */
+            baseline_p95_latency_ms: number | null;
+            /** Candidate P95 Latency Ms */
+            candidate_p95_latency_ms: number | null;
         };
         /** ModelParameters */
         ModelParameters: {
@@ -2161,6 +2321,107 @@ export interface operations {
                 };
                 content: {
                     "text/html": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_baseline_api_v1_projects__project_id__baseline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaselineOut"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_baseline_api_v1_projects__project_id__baseline_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BaselineIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaselineOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compare_to_baseline_api_v1_runs__run_id__comparison_get: {
+        parameters: {
+            query?: {
+                /** @description Par défaut : la baseline du projet */
+                baseline_run_id?: string | null;
+                tolerance?: number | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComparisonOut"];
                 };
             };
             /** @description Validation Error */

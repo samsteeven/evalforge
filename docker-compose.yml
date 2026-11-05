@@ -19,5 +19,23 @@ services:
       timeout: 3s
       retries: 20
 
+  rabbitmq:
+    image: rabbitmq:4.4-management-alpine
+    container_name: evalforge-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: evalforge
+      RABBITMQ_DEFAULT_PASS: evalforge
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672" # interface de gestion : files, file morte
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   pgdata:
+  rabbitdata:

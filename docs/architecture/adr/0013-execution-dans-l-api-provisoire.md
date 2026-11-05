@@ -1,6 +1,6 @@
 # ADR-013 : exécution des runs dans le processus de l'API (provisoire)
 
-**État** : provisoire, remplacée à l'incrément 4 par outbox, RabbitMQ et workers.
+**État** : remplacée par l'[ADR-022](0022-execution-asynchrone.md) à l'incrément 4.
 
 ## Contexte
 

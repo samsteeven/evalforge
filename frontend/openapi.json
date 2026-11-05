@@ -1655,6 +1655,205 @@
         }
       }
     },
+    "/api/v1/projects/{project_id}/baseline": {
+      "put": {
+        "tags": [
+          "baselines"
+        ],
+        "summary": "Set Baseline",
+        "description": "Adopter un run comme référence : réservé à qui peut évaluer (membre et au-dessus).",
+        "operationId": "set_baseline_api_v1_projects__project_id__baseline_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BaselineIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaselineOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "baselines"
+        ],
+        "summary": "Read Baseline",
+        "operationId": "read_baseline_api_v1_projects__project_id__baseline_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/BaselineOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Read Baseline Api V1 Projects  Project Id  Baseline Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/comparison": {
+      "get": {
+        "tags": [
+          "baselines"
+        ],
+        "summary": "Compare To Baseline",
+        "description": "Compare un run à la baseline : mêmes cas (même empreinte de jeu), modèles appariés par leur nom.",
+        "operationId": "compare_to_baseline_api_v1_runs__run_id__comparison_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "baseline_run_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Par défaut : la baseline du projet",
+              "title": "Baseline Run Id"
+            },
+            "description": "Par défaut : la baseline du projet"
+          },
+          {
+            "name": "tolerance",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tolerance"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComparisonOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -1683,6 +1882,58 @@
   },
   "components": {
     "schemas": {
+      "BaselineIn": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id"
+          },
+          "tolerance": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Tolerance",
+            "default": 0.02
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id"
+        ],
+        "title": "BaselineIn"
+      },
+      "BaselineOut": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Project Id"
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id"
+          },
+          "tolerance": {
+            "type": "number",
+            "title": "Tolerance"
+          },
+          "set_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Set At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_id",
+          "run_id",
+          "tolerance",
+          "set_at"
+        ],
+        "title": "BaselineOut"
+      },
       "Body_import_version_api_v1_datasets__dataset_id__versions_import_post": {
         "properties": {
           "file": {
@@ -1696,6 +1947,135 @@
           "file"
         ],
         "title": "Body_import_version_api_v1_datasets__dataset_id__versions_import_post"
+      },
+      "CaseChange": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "title": "Case Id"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "metric": {
+            "type": "string",
+            "title": "Metric"
+          },
+          "change": {
+            "type": "string",
+            "title": "Change"
+          },
+          "baseline_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Reason"
+          },
+          "candidate_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "model",
+          "metric",
+          "change"
+        ],
+        "title": "CaseChange"
+      },
+      "Comparison": {
+        "properties": {
+          "tolerance": {
+            "type": "number",
+            "title": "Tolerance"
+          },
+          "regressed": {
+            "type": "boolean",
+            "title": "Regressed"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelDelta"
+            },
+            "type": "array",
+            "title": "Models"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/CaseChange"
+            },
+            "type": "array",
+            "title": "Changes"
+          },
+          "only_in_baseline": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Only In Baseline"
+          },
+          "only_in_candidate": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Only In Candidate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tolerance",
+          "regressed",
+          "models",
+          "changes",
+          "only_in_baseline",
+          "only_in_candidate"
+        ],
+        "title": "Comparison"
+      },
+      "ComparisonOut": {
+        "properties": {
+          "baseline_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Baseline Run Id"
+          },
+          "candidate_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Candidate Run Id"
+          },
+          "dataset_checksum": {
+            "type": "string",
+            "title": "Dataset Checksum"
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/Comparison"
+          }
+        },
+        "type": "object",
+        "required": [
+          "baseline_run_id",
+          "candidate_run_id",
+          "dataset_checksum",
+          "comparison"
+        ],
+        "title": "ComparisonOut"
       },
       "DatasetCreate": {
         "properties": {
@@ -2120,6 +2500,97 @@
         ],
         "title": "MembershipOut"
       },
+      "MetricDelta": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "baseline_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Rate"
+          },
+          "candidate_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Rate"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta"
+          },
+          "paired": {
+            "type": "integer",
+            "title": "Paired"
+          },
+          "fixed": {
+            "type": "integer",
+            "title": "Fixed"
+          },
+          "broken": {
+            "type": "integer",
+            "title": "Broken"
+          },
+          "p_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P Value"
+          },
+          "significant": {
+            "type": "boolean",
+            "title": "Significant"
+          },
+          "regressed": {
+            "type": "boolean",
+            "title": "Regressed"
+          },
+          "improved": {
+            "type": "boolean",
+            "title": "Improved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "baseline_rate",
+          "candidate_rate",
+          "delta",
+          "paired",
+          "fixed",
+          "broken",
+          "p_value",
+          "significant",
+          "regressed",
+          "improved"
+        ],
+        "title": "MetricDelta"
+      },
       "MetricInfo": {
         "properties": {
           "name": {
@@ -2381,6 +2852,75 @@
           "created_at"
         ],
         "title": "ModelConfigurationOut"
+      },
+      "ModelDelta": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricDelta"
+            },
+            "type": "array",
+            "title": "Metrics"
+          },
+          "baseline_success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Success Rate"
+          },
+          "candidate_success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Success Rate"
+          },
+          "baseline_p95_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline P95 Latency Ms"
+          },
+          "candidate_p95_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate P95 Latency Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "metrics",
+          "baseline_success_rate",
+          "candidate_success_rate",
+          "baseline_p95_latency_ms",
+          "candidate_p95_latency_ms"
+        ],
+        "title": "ModelDelta"
       },
       "ModelParameters": {
         "properties": {

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { api, unwrap, type Schemas } from '../api/client'
 import { Badge, Button, Card, ErrorAlert, Loading, PageTitle } from '../components/ui'
+import { BaselinePanel } from '../features/runs/BaselinePanel'
 import { ModelComparison } from '../features/runs/ModelComparison'
 import { milliseconds, percent, RESULT_STATUS, RUN_STATUS, usd, when } from '../lib/format'
 
@@ -103,6 +104,10 @@ export function RunPage() {
           </dd>
         </dl>
       </Card>
+
+      {experiment.data && (
+        <BaselinePanel projectId={experiment.data.project_id} runId={runId} completed={data.status === 'completed'} />
+      )}
 
       <ErrorAlert error={metrics.error} />
       {metrics.data && <ModelComparison models={metrics.data.models} />}

@@ -1,5 +1,5 @@
-// Démarre le faux fournisseur LLM (8100) et l'API (8000) pour le test de bout en bout, avec des secrets jetables.
-// La base doit exister et être migrée (EVALFORGE_DATABASE_URL, voir le README).
+// Démarre le faux fournisseur LLM (8100), l'API (8000) et un worker pour le test de bout en bout, avec des secrets
+// jetables. La base doit exister et être migrée (EVALFORGE_DATABASE_URL), RabbitMQ doit tourner (voir le README).
 import { spawn } from 'node:child_process'
 
 const env = {
@@ -16,6 +16,8 @@ const options = { env, stdio: 'inherit', shell: true }
 const children = [
   spawn('uv run python ../scripts/fake_llm.py 8100', options),
   spawn('uv run uvicorn evalforge_api.main:create_app --factory --host 127.0.0.1 --port 8000', options),
+  // Les runs sont exécutés par le worker, pas par l'API (RabbitMQ requis : EVALFORGE_RABBITMQ_URL).
+  spawn('uv run evalforge-worker', options),
 ]
 const stop = () => children.forEach((child) => child.kill())
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => (stop(), process.exit(0)))

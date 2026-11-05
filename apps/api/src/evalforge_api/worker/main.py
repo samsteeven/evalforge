@@ -25,6 +25,7 @@ from aio_pika.abc import AbstractChannel, AbstractIncomingMessage, AbstractRobus
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import evalforge_api.models  # noqa: F401  (toutes les tables : sinon les clés étrangères ne se résolvent pas)
 from evalforge_api.core.config import Settings
 from evalforge_api.core.secrets import SecretBox
 from evalforge_api.messaging.events import EVALUATION_REQUESTED, Envelope, EvaluationRequested

@@ -2,17 +2,21 @@
 
 Plateforme d'évaluation pour applications LLM, RAG et agents : **Python (FastAPI)** côté serveur, **React + TypeScript** côté interface. Une équipe y versionne ses jeux de tests et ses prompts, lance une expérience sur un ou plusieurs modèles, et obtient pour chaque réponse des métriques de qualité, la latence, les tokens et le coût. L'objectif à terme : comparer à une baseline et bloquer un déploiement qui dégrade la qualité.
 
-> **État : incrément 3.** Juge LLM, métriques Ragas et DeepEval, import CSV, rapport HTML, CLI avec porte de qualité. Pas encore de RabbitMQ ni de baseline : voir [la feuille de route](#feuille-de-route).
+> **État : incrément 4.** Runs exécutés par des workers (outbox, RabbitMQ, reprise après panne, file morte), baseline et détection de régression, en plus du juge LLM, de Ragas et DeepEval, de l'import CSV, du rapport HTML et de la CLI. Voir [la feuille de route](#feuille-de-route).
 
 ![Run d'évaluation : deux modèles comparés sur cinq questions, notés par un juge LLM](docs/screenshots/run-comparaison.png)
 
 *Capture prise par le test Cypress de bout en bout : le « modèle sourcé » répond à partir du contexte fourni, le « modèle vague » répond toujours « Je ne sais pas ». Un juge LLM note chaque réponse et justifie sa note. Le second modèle n'a pas de prix renseigné : son coût est « inconnu », jamais 0.*
 
+![Détection de régression : un nouveau prompt sans contexte casse les cinq réponses du modèle sourcé](docs/screenshots/baseline-regression.png)
+
+*La démonstration du blueprint, rejouée par Cypress : le premier run devient la baseline, un nouveau prompt retire le contexte, et la comparaison appariée liste les cinq cas cassés. Le test de McNemar (p = 0,063) rappelle que cinq cas ne suffisent pas à prouver la régression.*
+
 ## Le parcours
 
-Dans l'interface : inscription (un espace de travail est créé), projet « Customer Support AI », import d'une version de jeu de données (fichier CSV ou JSON), prompt versionné, configuration des modèles à comparer et d'un modèle juge, expérience, lancement d'un run, puis comparaison qualité / performance / coût, détail de chaque réponse avec la justification du juge, et rapport HTML à archiver.
+Dans l'interface : inscription (un espace de travail est créé), projet « Customer Support AI », import d'une version de jeu de données (fichier CSV ou JSON), prompt versionné, configuration des modèles à comparer et d'un modèle juge, expérience, lancement d'un run (exécuté par un worker), puis comparaison qualité / performance / coût, détail de chaque réponse avec la justification du juge, et rapport HTML à archiver. Le run peut devenir la baseline du projet ; les runs suivants y sont comparés cas par cas.
 
-En local ou en CI, sans plateforme : `uv run evalforge run evalforge.yaml --report rapport.html` exécute la même évaluation et échoue (code 1) si un modèle passe sous un seuil. Voir [la CLI](#cli-et-porte-de-qualité).
+En local ou en CI, sans plateforme : `uv run evalforge run evalforge.yaml --report rapport.html --baseline precedent.json` exécute la même évaluation et échoue (code 1) si un modèle passe sous un seuil ou régresse. Voir [la CLI](#cli-et-porte-de-qualité).
 
 Côté API (`/docs` pour la documentation interactive) :
 
@@ -24,8 +28,10 @@ POST /api/v1/datasets/{id}/versions/import                 la même chose depuis
 POST /api/v1/projects/{id}/prompts                         gabarit versionné : « Contexte : {{ context }} Question : {{ question }} »
 POST /api/v1/projects/{id}/providers                       modèle compatible OpenAI ou Ollama ; clé chiffrée, prix avec sa source
 POST /api/v1/projects/{id}/experiments                     prompt + 1 à 5 modèles + métriques (+ modèle juge pour judge_*)
-POST /api/v1/experiments/{id}/runs                         202 Accepted ; exécution en arrière-plan
+POST /api/v1/experiments/{id}/runs                         202 Accepted : run et événement enregistrés ensemble, un worker l'exécute
 GET  /api/v1/runs/{id} | results | metrics | report        progression, réponses, agrégats par modèle, rapport HTML
+PUT  /api/v1/projects/{id}/baseline                        adopter un run terminé comme référence (avec sa tolérance)
+GET  /api/v1/runs/{id}/comparison                          comparaison appariée à la baseline : cas cassés, réparés, McNemar
 ```
 
 Toutes les routes métier demandent `Authorization: Bearer …` et l'en-tête `X-Workspace-Id` de l'espace courant.
@@ -34,7 +40,9 @@ Toutes les routes métier demandent `Authorization: Bearer …` et l'en-tête `X
 
 | Élément | Vérifié | Pas vérifié |
 |---|---|---|
-| Parcours complet | **Cypress dans un vrai navigateur**, contre l'API, PostgreSQL et un faux fournisseur HTTP : de l'inscription à la comparaison, avec import CSV, juge LLM et rapport HTML téléchargé puis relu (10 réponses, 100 % contre 0 %, coût connu contre « inconnu »). En CI à chaque push | **Aucun appel à un vrai modèle** : pas de clé utilisée, Ollama pas installé sur le poste de développement |
+| Parcours complet | **Cypress dans un vrai navigateur**, contre l'API, un worker, PostgreSQL, RabbitMQ et un faux fournisseur HTTP : de l'inscription à la régression détectée, avec import CSV, juge LLM et rapport HTML téléchargé puis relu (10 réponses, 100 % contre 0 %, coût connu contre « inconnu », 5 cas cassés par le nouveau prompt). En CI à chaque push |
+| Exécution asynchrone | Contre un vrai RabbitMQ : courtier injoignable, l'événement attend dans l'outbox puis part ; message rejoué à l'identique, rien n'est refait ; doublon reçu par un second worker pendant l'exécution, une seule exécution ; **worker arrêté en plein run**, un autre reprend et ne redemande que les réponses manquantes ; erreur persistante, deux tentatives puis file morte (dernière erreur en en-tête), run en échec et événement `evaluation.failed` ; le worker lancé seul charge tout le modèle de données | Plusieurs workers en parallèle sur une vraie charge ; perte d'un nœud RabbitMQ ([ADR-022](docs/architecture/adr/0022-execution-asynchrone.md)) |
+| Régression | Comparaison appariée cas par cas, tolérance réglable, McNemar exact, jeux différents refusés ; un nouveau prompt qui casse 5 réponses est signalé, le même prompt ne l'est pas ; la CLI échoue face à une baseline JSON | Sur un vrai jeu de plusieurs centaines de cas ([ADR-023](docs/architecture/adr/0023-detection-de-regression.md)) | **Aucun appel à un vrai modèle** : pas de clé utilisée, Ollama pas installé sur le poste de développement |
 | Juge LLM | Note de 1 à 5 justifiée, grille et version figées avec le modèle juge réellement utilisé ; une réponse du juge illisible ou hors grille rend la métrique indisponible (pas 0) sans faire échouer le run ; consigne au juge d'ignorer les instructions contenues dans la réponse | **L'accord entre le juge et des évaluateurs humains** : pas mesuré, et un vrai juge peut se tromper ([ADR-019](docs/architecture/adr/0019-juge-llm.md)) |
 | Ragas et DeepEval | Contre les vraies bibliothèques (Ragas 0.4.3, DeepEval 4.3.3), chacune dans son job de CI : leurs prompts et leurs schémas passent par la passerelle EvalForge, leur score est repris (2/3 d'affirmations appuyées → 0,67), une sortie non conforme est redemandée une fois, un NaN de Ragas devient « indisponible », leur télémétrie est coupée | Leurs résultats avec un vrai modèle : le faux modèle des tests répond à la main pour chaque schéma ([ADR-021](docs/architecture/adr/0021-adaptateurs-ragas-deepeval.md)) |
 | Import de fichiers | CSV au séparateur détecté (virgule, point-virgule, tabulation), BOM d'Excel, UTF-8 exigé ; un CSV et un JSON décrivant les mêmes cas donnent la même empreinte, donc la même version | Fichiers de plus de 2 Mo ou 1 000 cas : refusés |
@@ -50,31 +58,43 @@ Toutes les routes métier demandent `Authorization: Bearer …` et l'en-tête `X
 | Contrat front / API | Les types TypeScript sont générés depuis l'OpenAPI ; la CI échoue si l'un des deux n'est plus à jour | |
 | Migrations | `alembic check` en CI : aucune différence entre modèles et migrations | |
 
-127 tests automatisés : 120 en Python (30 passerelle, 34 moteur, 5 adaptateur Ragas, 4 adaptateur DeepEval, 8 CLI, 39 API contre PostgreSQL), 5 tests unitaires du front (Vitest), 2 parcours Cypress.
+143 tests automatisés : 136 en Python (30 passerelle, 40 moteur, 5 adaptateur Ragas, 4 adaptateur DeepEval, 9 CLI, 48 API contre PostgreSQL et RabbitMQ), 5 tests unitaires du front (Vitest), 2 parcours Cypress.
 
 ## Architecture
 
 ```
 frontend/                    React 19, TypeScript, Vite, TanStack Query, React Router, Tailwind ; client typé openapi-fetch
-apps/api                     FastAPI, SQLAlchemy 2 async, Alembic : l'API et l'exécution des runs
+apps/api                     FastAPI, SQLAlchemy 2 async, Alembic : l'API, l'outbox et le worker (evalforge-worker, aio-pika)
 apps/cli                     commande evalforge (Typer) : évaluation locale et porte de qualité, même moteur
 packages/evaluation_engine   contrats, gabarits, évaluateurs (déterministes, juge LLM, adaptateurs Ragas et DeepEval), lecture JSON/CSV, orchestration, agrégats, rapport HTML
 packages/llm_gateway         appels aux fournisseurs : délais, reprises, tokens, erreurs, capacités, protection SSRF
 scripts/fake_llm.py          faux fournisseur compatible OpenAI pour la démonstration et le test de bout en bout
 ```
 
-Monolithe modulaire découpé par domaine (`identity`, `workspaces`, `projects`, `datasets`, `providers`, `prompts`, `experiments`, `evaluations`). Le moteur ne connaît ni FastAPI ni la base : la CLI l'utilise déjà tel quel, les futurs workers aussi. La cible complète est décrite dans [docs/architecture/vision.md](docs/architecture/vision.md), les décisions dans [les ADR](docs/architecture/adr/README.md).
+Monolithe modulaire découpé par domaine (`identity`, `workspaces`, `projects`, `datasets`, `providers`, `prompts`, `experiments`, `evaluations`). Le moteur ne connaît ni FastAPI ni la base : la CLI et le worker l'utilisent tel quel.
+
+```
+navigateur ──► API (FastAPI) ── une transaction ──► PostgreSQL : run + événement (outbox)
+                                                        │ publieur, confirmation du courtier
+                                                        ▼
+                                RabbitMQ <préfixe>.evaluations ──► worker(s) ──► modèles évalués et juge
+                                   ▲ reprise à délai croissant        │ bail + battements, acquittement après enregistrement
+                                   └──────────────────────────────────┘ puis file morte et run en échec
+```
+
+La cible complète est décrite dans [docs/architecture/vision.md](docs/architecture/vision.md), les décisions dans [les ADR](docs/architecture/adr/README.md).
 
 ## Démarrer
 
 Prérequis : [uv](https://docs.astral.sh/uv/), Node.js 24, Docker.
 
 ```bash
-docker compose up -d postgres                     # PostgreSQL 18 sur le port 5435
+docker compose up -d postgres rabbitmq           # PostgreSQL 18 (port 5435), RabbitMQ 4.4 (5672, interface 15672)
 cp .env.example .env                              # renseigner les deux clés (commandes dans le fichier)
 uv sync
 uv run alembic -c apps/api/alembic.ini upgrade head
 uv run uvicorn evalforge_api.main:create_app --factory --reload     # API sur le port 8000
+uv run evalforge-worker                           # dans un autre terminal : c'est lui qui exécute les runs
 
 cd frontend && npm ci && npm run dev              # interface sur http://localhost:5173
 ```
@@ -91,7 +111,7 @@ npm run typecheck && npm run lint && npm test     # types, lint, Vitest
 npm run e2e                                       # Cypress : démarre faux fournisseur, API et front (base migrée requise)
 ```
 
-`EVALFORGE_TEST_DATABASE_URL` fait tourner les tests Python sur une base déjà démarrée. Les adaptateurs : `uv run --group ragas pytest packages/evaluation_engine/tests/test_adapter_ragas.py` (idem avec `deepeval`) ; sans le groupe, ces tests sont ignorés. `EVALFORGE_SCREENSHOTS=1 npm run e2e` reprend les captures du README (dans `frontend/cypress/screenshots`).
+Les tests de l'API démarrent PostgreSQL et RabbitMQ jetables (Testcontainers) ; `EVALFORGE_TEST_DATABASE_URL` et `EVALFORGE_TEST_RABBITMQ_URL` les remplacent par des services déjà démarrés. Les adaptateurs : `uv run --group ragas pytest packages/evaluation_engine/tests/test_adapter_ragas.py` (idem avec `deepeval`) ; sans le groupe, ces tests sont ignorés. `EVALFORGE_SCREENSHOTS=1 npm run e2e` reprend les captures du README (dans `frontend/cypress/screenshots`).
 
 Après une modification de l'API : `uv run python -m evalforge_api.openapi_export frontend/openapi.json`, puis `npm run api:types` dans `frontend`.
 
@@ -119,7 +139,8 @@ Codes de sortie : 0 tout va bien, 1 porte de qualité non franchie, 2 configurat
 
 ## Limites actuelles
 
-- **Exécution dans le processus de l'API** ([ADR-013](docs/architecture/adr/0013-execution-dans-l-api-provisoire.md)) : un run en cours est perdu si l'API s'arrête (il est marqué « interrupted »). Remplacée par outbox, RabbitMQ et workers à l'incrément 4.
+- **Progression interrogée, pas poussée** : la page d'un run demande l'état chaque seconde ; les Server-Sent Events viendront avec les webhooks.
+- **Délais de reprise en tête de file** : l'expiration par message fait qu'un message à long délai retarde les suivants dans la file d'attente ([ADR-022](docs/architecture/adr/0022-execution-asynchrone.md)).
 - **Pas d'e-mail** : un administrateur ajoute un compte existant par son adresse ; pas d'invitation ni de réinitialisation de mot de passe. L'ajout révèle si une adresse a un compte, à un administrateur seulement.
 - **Ragas ou DeepEval, pas les deux** dans un même environnement : leurs dépendances ne s'accordent pas. `uv sync --group ragas` (ou `--group deepeval`) avant de démarrer l'API ou la CLI ; sans groupe, leurs métriques ne sont pas proposées.
 - **Coût du juge non totalisé** : ses tokens sont enregistrés avec chaque note, mais pas additionnés au coût du run.
@@ -133,7 +154,7 @@ Codes de sortie : 0 tout va bien, 1 porte de qualité non franchie, 2 configurat
 | 1 | Tranche verticale backend : projets, jeux et prompts versionnés, fournisseurs, expériences, runs, métriques déterministes, latence, tokens, coût | **fait** |
 | 2 | Interface React + TypeScript, comptes, sessions et rôles, protection SSRF, tests Cypress | **fait** |
 | 3 | Juge LLM, adaptateurs Ragas et DeepEval, import CSV, CLI et porte de qualité, rapport HTML | **fait** |
-| 4 | Outbox, RabbitMQ (aio-pika), workers, reprises et file morte ; baseline et détection de régression | à faire |
+| 4 | Outbox, RabbitMQ (aio-pika), workers, reprises et file morte ; baseline et détection de régression | **fait** |
 | 5 | Un agent de support construit pour l'occasion (outils, appels de fonctions), évalué par EvalForge : trajectoires, choix des outils et de leurs arguments ; webhooks et contrôle qualité en CI | à faire |
 | 6 | Tests de prompt injection, OpenTelemetry, charge ; images Docker de l'API et du front, manifestes Kubernetes compatibles OpenShift (conteneurs non root, testés en CI sur un cluster local), playbook Ansible de déploiement, Terraform et AWS (ECS Fargate) | à faire |
 
