@@ -3,6 +3,7 @@
 from evalforge_api.core.database import Base
 from evalforge_api.messaging.models import OutboxEvent, ProcessedMessage
 from evalforge_api.modules.datasets.models import Dataset, DatasetVersion, TestCase
+from evalforge_api.modules.evaluations.baselines import ProjectBaseline
 from evalforge_api.modules.evaluations.models import EvaluationResult, EvaluationRun, MetricResult
 from evalforge_api.modules.experiments.models import Experiment, ExperimentModel
 from evalforge_api.modules.identity.models import RefreshToken, User
@@ -24,6 +25,7 @@ __all__ = [
     "ModelConfiguration",
     "OutboxEvent",
     "ProcessedMessage",
+    "ProjectBaseline",
     "PromptVersion",
     "RefreshToken",
     "TestCase",

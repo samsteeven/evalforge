@@ -99,6 +99,33 @@ def test_la_cle_vient_de_l_environnement(example: Path, monkeypatch):
     assert "CLE_ABSENTE absente" in " ".join(result.output.split())
 
 
+def test_une_regression_face_a_la_baseline_fait_echouer_la_commande(example: Path):
+    config = example / "evalforge.yaml"
+    text = config.read_text(encoding="utf-8")
+    # On ne garde que le modèle sourcé, sans seuil : seule la comparaison à la baseline peut faire échouer.
+    trimmed = text[: text.index("  - name: Modèle vague")] + text[text.index("metrics:") :]
+    config.write_text(trimmed.replace("thresholds:\n  judge_correctness: 0.8\n", ""), encoding="utf-8")
+    baseline = example / "baseline.json"
+    assert invoke("run", str(config), "--json", str(baseline)).exit_code == 0
+
+    same = invoke("run", str(config), "--baseline", str(baseline))
+    # Nouveau prompt sans contexte : le modèle sourcé ne trouve plus l'information.
+    config.write_text(
+        config.read_text(encoding="utf-8").replace("    Contexte : {{ context }}\n", ""), encoding="utf-8"
+    )
+    worse = invoke("run", str(config), "--baseline", str(baseline))
+
+    assert same.exit_code == 0, same.output
+    assert "Aucune régression" in same.output
+    assert worse.exit_code == 1, worse.output
+    flat = " ".join(worse.output.split())
+    assert (
+        "Régression Modèle sourcé : exact_match 100 % → 0 % (5 cas cassés, 0 réparés, p = 0.062, non significatif)"
+        in flat
+    )
+    assert "cassé : support-03" in flat
+
+
 def test_la_liste_des_metriques():
     result = invoke("metrics")
 

@@ -11,6 +11,7 @@ from evalforge_api.core.security import AccessTokens, Passwords
 from evalforge_api.messaging.outbox import OutboxPublisher
 from evalforge_api.messaging.topology import Topology
 from evalforge_api.modules.datasets.routes import router as datasets
+from evalforge_api.modules.evaluations.baselines import router as baselines
 from evalforge_api.modules.evaluations.routes import router as evaluations
 from evalforge_api.modules.experiments.routes import router as experiments
 from evalforge_api.modules.identity.routes import router as identity
@@ -62,7 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.passwords = Passwords()
 
     api = APIRouter(prefix="/api/v1")
-    for router in (identity, workspaces, projects, datasets, providers, prompts, experiments, evaluations):
+    for router in (identity, workspaces, projects, datasets, providers, prompts, experiments, evaluations, baselines):
         api.include_router(router)
     app.include_router(api)
 

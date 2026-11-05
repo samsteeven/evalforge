@@ -16,9 +16,10 @@ from rich.table import Table
 
 from evalforge_cli.config import ConfigError, load_config
 from evalforge_cli.runner import run_evaluation
+from evalforge_engine.comparison import compare
 from evalforge_engine.datasets import DatasetFormatError
 from evalforge_engine.evaluators import METRICS
-from evalforge_engine.reporting import render_report
+from evalforge_engine.reporting import Report, render_report
 
 app = typer.Typer(help="EvalForge : évaluer des applications LLM en local ou en CI.", no_args_is_help=True)
 # Pas de retour à la ligne forcé dans les messages : un chemin coupé ne se copie plus depuis un journal de CI.
@@ -34,10 +35,15 @@ def run(
     config_path: Annotated[Path, typer.Argument(help="Fichier YAML de l'évaluation", exists=True, dir_okay=False)],
     report: Annotated[Path | None, typer.Option(help="Écrit le rapport HTML")] = None,
     json_output: Annotated[Path | None, typer.Option("--json", help="Écrit le rapport en JSON")] = None,
+    baseline: Annotated[
+        Path | None, typer.Option(help="Rapport JSON d'une évaluation précédente : échoue en cas de régression")
+    ] = None,
+    tolerance: Annotated[float, typer.Option(help="Baisse de taux de réussite tolérée face à la baseline")] = 0.02,
 ) -> None:
     """Exécute l'évaluation décrite dans CONFIG_PATH et applique la porte de qualité."""
     try:
         config = load_config(config_path)
+        reference = load_baseline(baseline) if baseline else None
         evaluation = asyncio.run(run_evaluation(config))
     except (ConfigError, DatasetFormatError) as error:
         console.print(f"[red]Configuration invalide[/red] : {error}")
@@ -66,12 +72,43 @@ def run(
         json_output.write_text(evaluation.report.model_dump_json(indent=2), encoding="utf-8")
         console.print(f"Rapport JSON : {json_output}")
 
+    regressed = False
+    if reference is not None:
+        if reference.config.dataset_checksum != evaluation.report.config.dataset_checksum:
+            console.print("[red]Baseline inutilisable[/red] : elle porte sur un autre jeu de données")
+            raise typer.Exit(2)
+        shared = [name for name in config.metrics if name in reference.config.metrics]
+        comparison = compare(reference.results, evaluation.report.results, shared, tolerance=tolerance)
+        regressed = comparison.regressed
+        for model in comparison.models:
+            for m in model.metrics:
+                if m.regressed:
+                    significance = "significatif" if m.significant else "non significatif"
+                    console.print(
+                        f"[red]✗ Régression[/red] {model.model} : {m.name} {_percent(m.baseline_rate)} → "
+                        f"{_percent(m.candidate_rate)} ({m.broken} cas cassés, {m.fixed} réparés, "
+                        f"p = {m.p_value:.3f}, {significance})"
+                    )
+        for change in comparison.changes:
+            if change.change == "broken":
+                console.print(f"  cassé : {change.case_id} · {change.model} · {change.metric}")
+        if not regressed:
+            console.print(f"[green]✓[/green] Aucune régression face à la baseline (tolérance {_percent(tolerance)})")
+
     if evaluation.failures:
         for f in evaluation.failures:
             console.print(f"[red]✗[/red] {f.model} : {f.metric} à {_percent(f.actual)}, minimum {_percent(f.required)}")
+    if evaluation.failures or regressed:
         raise typer.Exit(1)
     if config.thresholds:
         console.print("[green]✓[/green] Porte de qualité franchie")
+
+
+def load_baseline(path: Path) -> Report:
+    try:
+        return Report.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ConfigError(f"baseline illisible ({path.name}) : {error}") from None
 
 
 @app.command()
