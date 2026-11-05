@@ -59,6 +59,9 @@ class EvaluationResult(IdMixin, CreatedAtMixin, Base):
     cost_usd: Mapped[float | None] = mapped_column(Numeric(14, 8, asdecimal=False))
     provider_model: Mapped[str | None] = mapped_column(String(200))
     provider_request_id: Mapped[str | None] = mapped_column(String(200))
+    # Agents : étapes suivies (outil, arguments, statut, résultat) et raison de l'arrêt.
+    trajectory: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    stop_reason: Mapped[str | None] = mapped_column(String(40))
 
 
 class MetricResult(IdMixin, Base):

@@ -97,7 +97,9 @@
       <tr>
         <td><code>{{ r.case_id }}</code></td>
         <td>{{ r.model }}</td>
-        <td>{% if r.status == "success" %}{{ r.output }}{% else %}<span class="ko">{{ r.status }} : {{ r.error }}</span>{% endif %}</td>
+        <td>{% if r.status == "success" %}{{ r.output }}{% else %}<span class="ko">{{ r.status }} : {{ r.error }}</span>{% endif %}
+          {% if r.trajectory is not none %}<div class="note">Trajectoire : {% for s in r.trajectory %}<span class="{{ 'ok' if s.status == 'success' else 'ko' }}">{{ s.tool }}</span>{% if not loop.last %} → {% endif %}{% else %}aucun outil{% endfor %}{% if r.stop_reason and r.stop_reason != "completed" %} · arrêt : {{ r.stop_reason }}{% endif %}</div>{% endif %}
+        </td>
         <td>
           {% for m in r.metrics %}
             <div class="metric"><span class="{{ 'ok' if m.passed else 'ko' if m.passed is not none else 'muted' }}">{{ '✓' if m.passed else '✗' if m.passed is not none else '—' }}</span> {{ m.name }}{% if m.score is not none and m.name.startswith(("judge_", "ragas_", "deepeval_")) %} ({{ m.score | percent }}){% endif %}{% if m.reason %}<br><span class="note">{{ m.reason }}</span>{% endif %}</div>

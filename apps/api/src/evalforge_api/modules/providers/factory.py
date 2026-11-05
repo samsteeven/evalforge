@@ -4,6 +4,9 @@ import httpx
 
 from evalforge_llm import Capabilities, LLMProvider, OpenAICompatibleProvider
 
+# Un agent exposant le contrat EvalForge (POST /v1/agent/run) : évalué sur sa réponse et sa trajectoire.
+AGENT_KIND = "evalforge_agent"
+
 # Capacités déclarées par type de fournisseur : seules celles vérifiées sont annoncées.
 CAPABILITIES = {
     "openai_compatible": Capabilities(),

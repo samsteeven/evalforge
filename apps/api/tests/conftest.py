@@ -157,14 +157,47 @@ def fake_llm() -> FakeLLM:
 
 
 @pytest.fixture
-async def worker_factory(settings: Settings, fake_llm: FakeLLM):
+async def support_agent_client():
+    """L'agent de support réel, piloté par le faux fournisseur de scripts/fake_llm.py, joignable en mémoire.
+
+    Le modèle pilote est choisi par l'adresse : http://support-agent.test ou http://careless-agent.test.
+    """
+    import importlib.util
+
+    from evalforge_llm import OpenAICompatibleProvider
+    from support_agent.agent import SupportAgent
+
+    spec = importlib.util.spec_from_file_location("fake_llm", API_DIR.parents[1] / "scripts" / "fake_llm.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    llm = httpx.AsyncClient(transport=httpx.ASGITransport(app=module.app))
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        model = request.url.host.removesuffix(".test")
+        agent = SupportAgent(OpenAICompatibleProvider(base_url="http://fake-llm/v1", client=llm), model)
+        result = await agent.run(json.loads(request.content)["message"])
+        return httpx.Response(200, json=result.model_dump(mode="json"))
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    yield client
+    await client.aclose()
+    await llm.aclose()
+
+
+@pytest.fixture
+async def worker_factory(settings: Settings, fake_llm: FakeLLM, support_agent_client):
     """Démarre des workers branchés sur le faux fournisseur ; arrêtés en fin de test."""
     llm_client = httpx.AsyncClient(transport=httpx.MockTransport(fake_llm.handle))
     factory = http_provider_factory(llm_client, timeout_seconds=5, backoff_seconds=0)
     started: list[Worker] = []
 
     async def start(custom_settings: Settings | None = None, worker_id: str | None = None) -> Worker:
-        worker = Worker(custom_settings or settings, provider_factory=factory, worker_id=worker_id)
+        worker = Worker(
+            custom_settings or settings,
+            provider_factory=factory,
+            worker_id=worker_id,
+            agent_client=support_agent_client,
+        )
         await worker.start()
         started.append(worker)
         return worker

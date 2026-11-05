@@ -52,12 +52,17 @@ ATTEMPT_HEADER = "x-evalforge-attempt"
 
 class Worker:
     def __init__(
-        self, settings: Settings, provider_factory: ProviderFactory | None = None, worker_id: str | None = None
+        self,
+        settings: Settings,
+        provider_factory: ProviderFactory | None = None,
+        worker_id: str | None = None,
+        agent_client: httpx.AsyncClient | None = None,
     ) -> None:
         self.settings = settings
         self.worker_id = worker_id or f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
         self.topology = Topology(settings.rabbitmq_prefix)
         self._provider_factory = provider_factory
+        self._agent_client = agent_client
         self._connection: AbstractRobustConnection | None = None
         self._channel: AbstractChannel | None = None
         self._in_flight: set[asyncio.Task] = set()
@@ -70,6 +75,8 @@ class Worker:
         self.provider_factory = self._provider_factory or http_provider_factory(
             self._http, timeout_seconds=settings.provider_timeout_seconds
         )
+        # Les agents évalués sont joints par HTTP, avec la même protection SSRF que les fournisseurs.
+        self.agent_client = self._agent_client or self._http
         self.secret_box = SecretBox(settings.secret_key.get_secret_value())
         # Les événements de fin écrits par le worker partent aussi sans attendre l'API.
         self.publisher = OutboxPublisher(
@@ -157,6 +164,7 @@ class Worker:
                     session_factory=self.session_factory,
                     provider_factory=self.provider_factory,
                     secret_box=self.secret_box,
+                    agent_client=self.agent_client,
                 )
         except Exception as error:
             reason = f"{type(error).__name__} : {error}"

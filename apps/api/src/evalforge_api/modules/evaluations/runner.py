@@ -15,6 +15,7 @@ from datetime import timedelta
 from enum import StrEnum
 from typing import Any
 
+import httpx
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -26,12 +27,12 @@ from evalforge_api.messaging.models import ProcessedMessage
 from evalforge_api.messaging.outbox import enqueue
 from evalforge_api.modules.datasets.models import TestCase
 from evalforge_api.modules.evaluations.models import EvaluationResult, EvaluationRun, MetricResult, RunStatus
-from evalforge_api.modules.providers.factory import ProviderFactory
+from evalforge_api.modules.providers.factory import AGENT_KIND, ProviderFactory
 from evalforge_api.modules.providers.models import ModelConfiguration
 from evalforge_engine import CaseOutcome, EvaluationCase, WorkItem, evaluate_cases
 from evalforge_engine.evaluators import JudgeModel, build_evaluators
 from evalforge_engine.scoring import cost_usd
-from evalforge_engine.targets import llm_target
+from evalforge_engine.targets import agent_target, llm_target
 from evalforge_llm import LLMProvider
 
 log = logging.getLogger(__name__)
@@ -119,7 +120,12 @@ async def heartbeat(
 
 
 async def execute_run(
-    run_id: uuid.UUID, *, session_factory: SessionFactory, provider_factory: ProviderFactory, secret_box: SecretBox
+    run_id: uuid.UUID,
+    *,
+    session_factory: SessionFactory,
+    provider_factory: ProviderFactory,
+    secret_box: SecretBox,
+    agent_client: httpx.AsyncClient,
 ) -> None:
     """Exécute les réponses qui manquent encore. Une erreur remonte : le worker décide de reprendre ou d'abandonner."""
     async with session_factory() as session:
@@ -167,14 +173,23 @@ async def execute_run(
     pricing: dict[uuid.UUID, dict[str, Any] | None] = {}
     for model in configuration["models"]:
         model_id = uuid.UUID(model["id"])
-        target = llm_target(
-            provider_for(model),
-            model=model["model_name"],
-            template=configuration["prompt"]["template"],
-            system=configuration["prompt"]["system"],
-            temperature=model["parameters"]["temperature"],
-            max_tokens=model["parameters"]["max_tokens"],
-        )
+        if model["provider_kind"] == AGENT_KIND:
+            # Un agent reçoit le prompt rendu et renvoie sa réponse et sa trajectoire.
+            target = agent_target(
+                agent_client,
+                base_url=model["base_url"],
+                name=model["name"],
+                template=configuration["prompt"]["template"],
+            )
+        else:
+            target = llm_target(
+                provider_for(model),
+                model=model["model_name"],
+                template=configuration["prompt"]["template"],
+                system=configuration["prompt"]["system"],
+                temperature=model["parameters"]["temperature"],
+                max_tokens=model["parameters"]["max_tokens"],
+            )
         pricing[model_id] = model["pricing"]
         items.extend(
             WorkItem((case.id, model_id), to_engine_case(case), target)
@@ -226,6 +241,8 @@ async def _persist(
                 cost_usd=cost,
                 provider_model=output.model if output else None,
                 provider_request_id=output.request_id if output else None,
+                trajectory=output.trajectory if output else None,
+                stop_reason=output.stop_reason if output else None,
             )
             .on_conflict_do_nothing(index_elements=["run_id", "test_case_id", "model_configuration_id"])
             .returning(EvaluationResult.id)

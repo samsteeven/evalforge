@@ -2,6 +2,7 @@
 
 import math
 from collections.abc import Sequence
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -108,6 +109,8 @@ class ResultRecord(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
     cost_usd: float | None = None
+    trajectory: list[dict[str, Any]] | None = None
+    stop_reason: str | None = None
     metrics: list[MetricRecord] = []
 
 

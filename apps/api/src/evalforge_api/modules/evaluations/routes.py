@@ -79,6 +79,9 @@ class ResultOut(BaseModel):
     output_tokens: int | None
     cost_usd: float | None
     provider_model: str | None
+    # Agents : étapes suivies et raison de l'arrêt (vides pour un modèle).
+    trajectory: list[dict[str, Any]] | None = None
+    stop_reason: str | None = None
     metrics: list[MetricOut]
 
 
@@ -251,6 +254,8 @@ async def list_results(
             output_tokens=result.output_tokens,
             cost_usd=result.cost_usd,
             provider_model=result.provider_model,
+            trajectory=result.trajectory,
+            stop_reason=result.stop_reason,
             metrics=[
                 MetricOut(name=m.name, score=m.score, passed=m.passed, reason=m.reason) for m in metrics[result.id]
             ],
@@ -283,6 +288,8 @@ async def _records(session: AsyncSession, run: EvaluationRun) -> list[ResultReco
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             cost_usd=result.cost_usd,
+            trajectory=result.trajectory,
+            stop_reason=result.stop_reason,
             metrics=[
                 MetricRecord(name=m.name, score=m.score, passed=m.passed, reason=m.reason) for m in metrics[result.id]
             ],

@@ -30,7 +30,7 @@ class Pricing(BaseModel):
 
 class ModelConfigurationCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    provider_kind: Literal["openai_compatible", "ollama"]
+    provider_kind: Literal["openai_compatible", "ollama", "evalforge_agent"]
     base_url: AnyHttpUrl
     model_name: str = Field(min_length=1, max_length=200)
     parameters: ModelParameters = Field(default_factory=ModelParameters)

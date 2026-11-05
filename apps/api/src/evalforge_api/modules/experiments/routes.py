@@ -12,6 +12,7 @@ from evalforge_api.core.tenancy import EditorDep, WorkspaceDep, not_found
 from evalforge_api.modules.experiments.models import Experiment, ExperimentModel
 from evalforge_api.modules.projects.routes import get_project
 from evalforge_api.modules.prompts.models import PromptVersion
+from evalforge_api.modules.providers.factory import AGENT_KIND
 from evalforge_api.modules.providers.models import ModelConfiguration
 from evalforge_engine.evaluators import METRICS, available_metrics, needs_judge
 
@@ -146,13 +147,15 @@ async def create_experiment(
     if len(configs) != len(body.model_configuration_ids):
         raise HTTPException(422, "Configuration de modèle introuvable dans ce projet")
     if body.judge_model_configuration_id is not None:
-        judge = await session.scalar(
-            select(ModelConfiguration.id).where(
+        judge_kind = await session.scalar(
+            select(ModelConfiguration.provider_kind).where(
                 ModelConfiguration.id == body.judge_model_configuration_id, ModelConfiguration.project_id == project_id
             )
         )
-        if judge is None:
+        if judge_kind is None:
             raise HTTPException(422, "Modèle juge introuvable dans ce projet")
+        if judge_kind == AGENT_KIND:
+            raise HTTPException(422, "Un agent ne peut pas servir de juge : choisir un modèle")
 
     experiment = Experiment(
         workspace_id=workspace_id,
