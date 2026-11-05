@@ -27,5 +27,7 @@
 | [023](0023-detection-de-regression.md) | Baseline de projet et détection de régression appariée (McNemar exact) | acceptée, appliquée |
 | [024](0024-evaluation-d-agents.md) | Agents évalués sur leur trajectoire, à travers un contrat HTTP ; agent de support de démonstration | acceptée, appliquée |
 | [025](0025-webhooks.md) | Webhooks signés (HMAC), envoyés par les workers depuis les événements de fin de run | acceptée, appliquée |
+| [026](0026-observabilite-et-charge.md) | Traces OpenTelemetry de bout en bout (outbox comprise), test de charge et ce qu'il a trouvé | acceptée, appliquée |
+| [027](0027-injections-de-prompt.md) | Résistance aux injections de prompt mesurée par des métriques déterministes ; canari et garde de sortie | acceptée, appliquée |
 
 Les ADR 003 à 012 sont rédigées en détail à l'incrément qui les met en œuvre ; leur justification d'origine est dans [vision.md](../vision.md).

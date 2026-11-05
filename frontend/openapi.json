@@ -4019,7 +4019,8 @@
             "enum": [
               "qa",
               "rag",
-              "agent"
+              "agent",
+              "security"
             ],
             "title": "Type",
             "default": "qa"

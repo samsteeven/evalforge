@@ -1311,7 +1311,7 @@ export interface components {
              * @default qa
              * @enum {string}
              */
-            type: "qa" | "rag" | "agent";
+            type: "qa" | "rag" | "agent" | "security";
             /** Input */
             input: {
                 [key: string]: unknown;

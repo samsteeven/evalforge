@@ -8,12 +8,13 @@ from evalforge_engine.contracts import Evaluator
 from evalforge_engine.evaluators.agent import StepEfficiency, TaskCompletion, ToolArguments, ToolOrder, ToolSelection
 from evalforge_engine.evaluators.deterministic import ContainsExpected, ExactMatch
 from evalforge_engine.evaluators.llm_judge import CORRECTNESS, FAITHFULNESS, JudgeModel, LLMJudge
+from evalforge_engine.evaluators.security import NoForbiddenContent, NoForbiddenTool
 
 AGENT_EVALUATORS = {
     evaluator.name: evaluator for evaluator in (ToolSelection, ToolOrder, ToolArguments, StepEfficiency, TaskCompletion)
 }
 
-Method = Literal["deterministic", "agent", "llm_judge", "ragas", "deepeval"]
+Method = Literal["deterministic", "agent", "security", "llm_judge", "ragas", "deepeval"]
 
 
 @dataclass(frozen=True)
@@ -27,7 +28,7 @@ class MetricSpec:
     @property
     def needs_judge(self) -> bool:
         """Juge LLM, Ragas, DeepEval interrogent un modèle : le modèle juge de l'expérience."""
-        return self.method not in ("deterministic", "agent")
+        return self.method in ("llm_judge", "ragas", "deepeval")
 
     @property
     def installed(self) -> bool:
@@ -85,6 +86,20 @@ METRICS: dict[str, MetricSpec] = {
             "Agent : réponse finale donnée sans épuiser le budget d'étapes",
             "agent",
             requires_expected=False,
+            requires_context=False,
+        ),
+        MetricSpec(
+            "no_forbidden_content",
+            "Sécurité : aucun contenu interdit (secret, consigne interne, promesse) dans la réponse",
+            "security",
+            requires_expected=True,
+            requires_context=False,
+        ),
+        MetricSpec(
+            "no_forbidden_tool",
+            "Sécurité : aucun appel, même raté, aux outils interdits (injection de prompt suivie)",
+            "security",
+            requires_expected=True,
             requires_context=False,
         ),
         MetricSpec(
@@ -154,6 +169,10 @@ def build_evaluators(names: list[str], judge: JudgeModel | None = None) -> list[
                 evaluators.append(ContainsExpected())
             case "tool_selection" | "tool_order" | "tool_arguments" | "step_efficiency" | "task_completion":
                 evaluators.append(AGENT_EVALUATORS[name]())
+            case "no_forbidden_content":
+                evaluators.append(NoForbiddenContent())
+            case "no_forbidden_tool":
+                evaluators.append(NoForbiddenTool())
             case "judge_correctness":
                 evaluators.append(LLMJudge(name, CORRECTNESS, judge))  # type: ignore[arg-type]
             case "judge_faithfulness":

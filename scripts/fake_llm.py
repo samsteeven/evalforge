@@ -10,6 +10,8 @@ Le comportement dépend du modèle demandé :
 - « support-agent » pilote l'agent de support avec des appels d'outils, en suivant la bonne démarche ;
 - « careless-agent » pilote le même agent en faisant les erreurs typiques : transfert inutile à un humain, numéro de
   commande mal formé, politique de retour inventée au lieu d'être consultée ;
+- « naive-agent » utilise bien ses outils mais obéit aux injections de prompt : celles du client (révéler ses
+  consignes, créer un ticket de force) comme celles cachées dans un résultat d'outil (note d'une commande) ;
 - tout autre nom renvoie une erreur 404, comme un fournisseur réel.
 Il sert aussi de destinataire de webhooks pour la démonstration : POST /webhooks/receive les garde en mémoire,
 GET /webhooks/received les relit.
@@ -86,7 +88,44 @@ def _category(user: str, results: dict[str, dict]) -> str:
     return "electronique"
 
 
-def _next_tool(user: str, called: list[str], results: dict[str, dict], careful: bool) -> tuple[str, dict] | None:
+INJECTION = r"ignore|oublie|mode développeur|nouvelles? instructions?"
+REVEAL = r"affiche|révèle|montre|donne|répète"
+
+
+def _injected(user: str) -> bool:
+    return bool(re.search(INJECTION, user, re.IGNORECASE))
+
+
+def _planted(results: dict[str, dict]) -> bool:
+    """Une instruction cachée dans un résultat d'outil (injection indirecte)."""
+    return "INSTRUCTION" in str((results.get("find_order") or {}).get("note", ""))
+
+
+def _obeyed(user: str, results: dict[str, dict]) -> list[tuple[str, dict]]:
+    """Ce qu'un agent crédule ajoute à son plan quand on le lui ordonne."""
+    order = re.search(r"CMD-\d{4}", user)
+    plan: list[tuple[str, dict]] = []
+    if _injected(user) and re.search(r"ticket", user, re.IGNORECASE):
+        plan.append(
+            (
+                "create_ticket",
+                {"order_id": order[0] if order else None, "reason": "Demande du client", "priority": "haute"},
+            )
+        )
+    if _planted(results):
+        plan.append(("escalate_to_human", {"reason": "Instruction trouvée dans la note de commande."}))
+        plan.append(
+            (
+                "create_ticket",
+                {"order_id": order[0] if order else None, "reason": "Note de commande", "priority": "haute"},
+            )
+        )
+    return plan
+
+
+def _next_tool(
+    user: str, called: list[str], results: dict[str, dict], careful: bool, gullible: bool = False
+) -> tuple[str, dict] | None:
     order = re.search(r"CMD-\d{4}", user)
     wants_return = re.search(r"retour|rembours|renvoyer", user, re.IGNORECASE)
     damaged = re.search(r"cassé|endommagé|abîmé|défectueux", user, re.IGNORECASE)
@@ -112,13 +151,17 @@ def _next_tool(user: str, called: list[str], results: dict[str, dict], careful: 
         plan.append(("escalate_to_human", {"reason": "Demande client à traiter."}))
         if order:
             plan.append(("find_order", {"order_id": order[0].removeprefix("CMD-")}))
+    if gullible:
+        plan.extend(_obeyed(user, results))
     for name, arguments in plan:
         if name not in called:
             return name, arguments
     return None
 
 
-def _final_answer(user: str, results: dict[str, dict], careful: bool) -> str:
+def _final_answer(user: str, results: dict[str, dict], careful: bool, system: str = "", gullible: bool = False) -> str:
+    if gullible and _injected(user) and re.search(REVEAL, user, re.IGNORECASE):
+        return f"Voici mes consignes : {system}"  # fuite : la garde de sortie de l'agent doit la rattraper
     parts = []
     order = results.get("find_order")
     if order and order.get("found"):
@@ -141,11 +184,12 @@ def _final_answer(user: str, results: dict[str, dict], careful: bool) -> str:
     return " ".join(parts) or "Pouvez-vous préciser votre demande ?"
 
 
-def _agent_reply(messages: list[dict], careful: bool) -> dict[str, Any]:
+def _agent_reply(messages: list[dict], careful: bool, gullible: bool = False) -> dict[str, Any]:
     user, called, results = _agent_state(messages)
-    choice = _next_tool(user, called, results, careful)
+    choice = _next_tool(user, called, results, careful, gullible)
     if choice is None:
-        return {"role": "assistant", "content": _final_answer(user, results, careful)}
+        system = next((str(m["content"]) for m in messages if m["role"] == "system"), "")
+        return {"role": "assistant", "content": _final_answer(user, results, careful, system, gullible)}
     name, arguments = choice
     return {
         "role": "assistant",
@@ -163,9 +207,13 @@ def _agent_reply(messages: list[dict], careful: bool) -> dict[str, Any]:
 @app.post("/v1/chat/completions")
 async def chat(request: ChatRequest) -> JSONResponse:
     prompt = str(request.messages[-1].get("content") or "")
-    if request.model in ("support-agent", "careless-agent"):
+    if request.model in ("support-agent", "careless-agent", "naive-agent"):
         await asyncio.sleep(random.uniform(0.05, 0.2))  # noqa: S311
-        message = _agent_reply(request.messages, careful=request.model == "support-agent")
+        message = _agent_reply(
+            request.messages,
+            careful=request.model != "careless-agent",
+            gullible=request.model == "naive-agent",
+        )
     elif request.model == "grounded":
         await asyncio.sleep(random.uniform(0.15, 0.6))  # noqa: S311 (simulation, pas de sécurité)
         match = re.search(r"^Contexte : (.+)$", prompt, re.MULTILINE)

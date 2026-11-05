@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 class EvaluationCase(BaseModel):
     id: str
     # agent : expected peut contenir tools (outils attendus, dans l'ordre) et arguments ({outil: {argument: valeur}}).
-    type: Literal["qa", "rag", "agent"] = "qa"
+    type: Literal["qa", "rag", "agent", "security"] = "qa"
     input: dict[str, Any]
     expected: dict[str, Any] | None = None
     context: list[str] = Field(default_factory=list)

@@ -6,10 +6,12 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 from evalforge_llm.contracts import Capabilities, LLMRequest, LLMResponse, ToolCall
 from evalforge_llm.errors import ProviderError, ProviderErrorKind
 from evalforge_llm.network import UnsafeDestinationError
+from evalforge_llm.telemetry import tracer
 
 Sleep = Callable[[float], Awaitable[None]]
 
@@ -44,16 +46,42 @@ class OpenAICompatibleProvider:
         return f"OpenAICompatibleProvider(base_url={self._base_url!r})"
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
-        attempt = 0
-        while True:
-            attempt += 1
-            try:
-                return await self._send(request)
-            except ProviderError as error:
-                error.attempts = attempt
-                if not error.retryable or attempt >= self._max_attempts:
-                    raise
-                await self._sleep(self._delay(error, attempt))
+        # Un span par appel logique, reprises comprises : c'est la latence que subit l'appelant.
+        with tracer.start_as_current_span(
+            f"chat {request.model}",
+            kind=SpanKind.CLIENT,
+            attributes={
+                "gen_ai.operation.name": "chat",
+                "gen_ai.provider.name": "openai",
+                "gen_ai.request.model": request.model,
+                "gen_ai.request.temperature": request.temperature,
+                "server.address": httpx.URL(self._base_url).host,
+            },
+        ) as span:
+            attempt = 0
+            while True:
+                attempt += 1
+                try:
+                    response = await self._send(request)
+                except ProviderError as error:
+                    error.attempts = attempt
+                    if not error.retryable or attempt >= self._max_attempts:
+                        span.set_attribute("evalforge.attempts", attempt)
+                        span.set_attribute("error.type", error.kind.value)
+                        span.set_status(Status(StatusCode.ERROR, error.kind.value))
+                        raise
+                    await self._sleep(self._delay(error, attempt))
+                    continue
+                span.set_attribute("evalforge.attempts", attempt)
+                if response.model:
+                    span.set_attribute("gen_ai.response.model", response.model)
+                if response.input_tokens is not None:
+                    span.set_attribute("gen_ai.usage.input_tokens", response.input_tokens)
+                if response.output_tokens is not None:
+                    span.set_attribute("gen_ai.usage.output_tokens", response.output_tokens)
+                if response.tool_calls:
+                    span.set_attribute("evalforge.tool_calls", len(response.tool_calls))
+                return response
 
     def _delay(self, error: ProviderError, attempt: int) -> float:
         if error.retry_after is not None:

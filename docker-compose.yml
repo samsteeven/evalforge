@@ -36,6 +36,15 @@ services:
       timeout: 5s
       retries: 20
 
+  # Traces OpenTelemetry (OTLP) : docker compose --profile observability up -d jaeger, puis http://localhost:16686.
+  jaeger:
+    image: jaegertracing/jaeger:2.23.0
+    container_name: evalforge-jaeger
+    profiles: [observability]
+    ports:
+      - "127.0.0.1:4318:4318" # OTLP/HTTP : OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+      - "127.0.0.1:16686:16686" # interface et API de recherche
+
 volumes:
   pgdata:
   rabbitdata:

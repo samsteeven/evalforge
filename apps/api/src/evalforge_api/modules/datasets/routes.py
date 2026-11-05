@@ -41,7 +41,7 @@ class TestCaseIn(BaseModel):
     __test__ = False
 
     id: str | None = Field(default=None, min_length=1, max_length=200)
-    type: Literal["qa", "rag", "agent"] = "qa"
+    type: Literal["qa", "rag", "agent", "security"] = "qa"
     input: dict[str, Any] = Field(min_length=1)
     expected: dict[str, Any] | None = None
     context: list[str] = Field(default_factory=list)

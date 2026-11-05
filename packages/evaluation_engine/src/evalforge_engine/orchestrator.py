@@ -9,7 +9,12 @@ from collections.abc import AsyncIterator, Hashable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+
 from evalforge_engine.contracts import EvaluationCase, EvaluationInput, Evaluator, MetricOutput, Target, TargetOutput
+
+tracer = trace.get_tracer("evalforge")
 
 
 class CaseStatus(StrEnum):
@@ -63,6 +68,18 @@ async def evaluate_cases(
 
 
 async def _evaluate_one(item: WorkItem, evaluators: Sequence[Evaluator], timeout_seconds: float) -> CaseOutcome:
+    with tracer.start_as_current_span("evaluate_case", attributes={"evalforge.case.id": item.case.id}) as span:
+        outcome = await _evaluate(item, evaluators, timeout_seconds)
+        span.set_attribute("evalforge.case.status", outcome.status.value)
+        failed = [metric.name for metric in outcome.metrics if metric.passed is False]
+        if failed:
+            span.set_attribute("evalforge.metrics.failed", failed)
+        if outcome.status is not CaseStatus.SUCCESS:
+            span.set_status(Status(StatusCode.ERROR, outcome.error or outcome.status.value))
+        return outcome
+
+
+async def _evaluate(item: WorkItem, evaluators: Sequence[Evaluator], timeout_seconds: float) -> CaseOutcome:
     try:
         output = await asyncio.wait_for(item.target(item.case), timeout_seconds)
     except TimeoutError:

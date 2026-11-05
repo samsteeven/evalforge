@@ -32,12 +32,15 @@ dev = [
 # Ragas 0.4.3 importe un module retiré de langchain-community 0.4 : version bornée.
 ragas = ["ragas>=0.4.3,<0.5", "langchain-community<0.4"]
 deepeval = ["deepeval>=4.3,<5"]
+load = [
+    "locust>=2.32",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--import-mode=importlib"
-pythonpath = ["apps/api/tests", "packages/evaluation_engine/tests"]
+pythonpath = ["apps/api/tests", "packages/evaluation_engine/tests", "packages/llm_gateway/tests"]
 testpaths = ["packages/llm_gateway/tests", "packages/evaluation_engine/tests", "apps/cli/tests", "apps/support_agent/tests", "apps/api/tests"]
 
 [tool.ruff]
@@ -50,7 +53,7 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "S", "RUF", "SIM"]
 ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["evalforge_api", "evalforge_cli", "support_agent", "evalforge_engine", "evalforge_llm", "helpers", "adapter_support"]
+known-first-party = ["evalforge_api", "evalforge_cli", "support_agent", "evalforge_engine", "evalforge_llm", "helpers", "adapter_support", "test_openai_compatible"]
 
 [tool.ruff.lint.per-file-ignores]
 # Les tests attendent l'état d'un run en interrogeant l'API, comme le ferait un client.

@@ -7,6 +7,7 @@ from typing import Any
 
 import aio_pika
 from aio_pika.abc import AbstractConnection
+from opentelemetry.propagate import inject
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -20,7 +21,9 @@ log = logging.getLogger(__name__)
 
 def enqueue(session: AsyncSession, event_type: str, payload: dict[str, Any], correlation_id: str) -> Envelope:
     """Ajoute l'événement à la transaction en cours : il n'existe que si le changement est validé."""
-    envelope = Envelope(event_type=event_type, correlation_id=correlation_id, payload=payload)
+    carrier: dict[str, str] = {}
+    inject(carrier)
+    envelope = Envelope(event_type=event_type, correlation_id=correlation_id, payload=payload, trace_context=carrier)
     session.add(
         OutboxEvent(
             id=envelope.event_id,

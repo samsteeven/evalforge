@@ -12,11 +12,14 @@ from contextlib import asynccontextmanager
 import httpx
 import uvicorn
 from fastapi import FastAPI
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from evalforge_llm import OpenAICompatibleProvider
 from evalforge_llm.network import SafeTransport
+from evalforge_llm.telemetry import configure_telemetry
 from support_agent.agent import AgentResult, SupportAgent
 
 
@@ -27,6 +30,8 @@ class AgentSettings(BaseSettings):
     llm_model: str = "support-agent"
     llm_api_key: SecretStr | None = None
     max_steps: int = 6
+    # Garde de sortie : à désactiver seulement pour mesurer ce que le modèle laisse fuir sans elle.
+    output_guard: bool = True
     # Le faux fournisseur de démonstration écoute sur 127.0.0.1.
     allow_private_urls: bool = True
 
@@ -46,7 +51,9 @@ def create_app(settings: AgentSettings | None = None, client: httpx.AsyncClient 
             api_key=settings.llm_api_key.get_secret_value() if settings.llm_api_key else None,
             client=http,
         )
-        app.state.agent = SupportAgent(provider, settings.llm_model, max_steps=settings.max_steps)
+        app.state.agent = SupportAgent(
+            provider, settings.llm_model, max_steps=settings.max_steps, output_guard=settings.output_guard
+        )
         try:
             yield
         finally:
@@ -54,6 +61,8 @@ def create_app(settings: AgentSettings | None = None, client: httpx.AsyncClient 
                 await http.aclose()
 
     app = FastAPI(title="Agent de support (démonstration EvalForge)", version="0.1.0", lifespan=lifespan)
+    # Le contexte de trace reçu (traceparent) est repris : l'appel du worker et le travail de l'agent forment une trace.
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="health")
 
     @app.post("/v1/agent/run", response_model=AgentResult)
     async def run(body: RunIn) -> AgentResult:
@@ -67,4 +76,6 @@ def create_app(settings: AgentSettings | None = None, client: httpx.AsyncClient 
 
 
 def main() -> None:
+    if configure_telemetry("evalforge-support-agent"):
+        HTTPXClientInstrumentor().instrument()
     uvicorn.run(create_app(), host="127.0.0.1", port=int(os.environ.get("SUPPORT_AGENT_PORT", "8200")))

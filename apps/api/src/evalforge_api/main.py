@@ -3,6 +3,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from evalforge_api.core.config import Settings
@@ -20,6 +22,7 @@ from evalforge_api.modules.prompts.routes import router as prompts
 from evalforge_api.modules.providers.routes import router as providers
 from evalforge_api.modules.webhooks.routes import router as webhooks
 from evalforge_api.modules.workspaces.routes import router as workspaces
+from evalforge_llm.telemetry import configure_telemetry
 
 log = logging.getLogger(__name__)
 
@@ -27,10 +30,19 @@ log = logging.getLogger(__name__)
 def create_app(settings: Settings | None = None) -> FastAPI:
     """L'API n'exécute aucun run : elle les enregistre avec leur événement (outbox), les workers les exécutent."""
     settings = settings or Settings()
+    configure_telemetry("evalforge-api")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        engine = create_async_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            pool_size=settings.database_pool_size,
+            max_overflow=settings.database_max_overflow,
+        )
+        SQLAlchemyInstrumentor().instrument(
+            engine=engine.sync_engine, skip_dep_check=True
+        )  # requêtes SQL dans les traces
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         publisher = OutboxPublisher(
             session_factory,
@@ -78,6 +90,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ):
         api.include_router(router)
     app.include_router(api)
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="health")
 
     @app.get("/health", tags=["health"])
     async def health() -> dict[str, str]:

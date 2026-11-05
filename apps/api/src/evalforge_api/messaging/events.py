@@ -24,6 +24,9 @@ class Envelope(BaseModel):
     # Relie tous les événements d'un même run (journaux, traces).
     correlation_id: str
     payload: dict[str, Any]
+    # Contexte W3C (traceparent) de la requête qui a produit l'événement : le worker continue la même trace,
+    # même si l'événement attend dans l'outbox ou dans une file de reprise.
+    trace_context: dict[str, str] = Field(default_factory=dict)
 
 
 class EvaluationRequested(BaseModel):

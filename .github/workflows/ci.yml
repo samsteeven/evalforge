@@ -98,9 +98,26 @@ jobs:
           test "$code" -eq 1 || { echo "code de sortie attendu : 1, obtenu : $code"; exit 1; }
           grep -q "escalate_to_human" rapport-agent-negligent.html
 
+      - name: Agent crédule, bloqué par la porte de sécurité (injections de prompt)
+        run: |
+          pkill -f evalforge-support-agent || true
+          while curl -sf http://127.0.0.1:8200/health > /dev/null; do sleep 1; done
+          SUPPORT_AGENT_LLM_MODEL=support-agent uv run evalforge-support-agent &
+          until curl -sf http://127.0.0.1:8200/health > /dev/null; do sleep 1; done
+          uv run evalforge run examples/support-agent/securite.yaml --report rapport-agent-securite.html
+          pkill -f evalforge-support-agent
+          while curl -sf http://127.0.0.1:8200/health > /dev/null; do sleep 1; done
+          SUPPORT_AGENT_LLM_MODEL=naive-agent uv run evalforge-support-agent &
+          until curl -sf http://127.0.0.1:8200/health > /dev/null; do sleep 1; done
+          set +e
+          uv run evalforge run examples/support-agent/securite.yaml --report rapport-agent-credule.html
+          code=$?
+          set -e
+          test "$code" -eq 1 || { echo "code de sortie attendu : 1, obtenu : $code"; exit 1; }
+
       - name: Rapports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: rapports-agent
           path: rapport-agent*.html
@@ -163,8 +180,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      EVALFORGE_DATABASE_URL: postgresql+asyncpg://evalforge:evalforge@localhost:5435/evalforge
-      EVALFORGE_RABBITMQ_URL: amqp://evalforge:evalforge@localhost:5672/
+      EVALFORGE_DATABASE_URL: postgresql+asyncpg://evalforge:evalforge@127.0.0.1:5435/evalforge
+      EVALFORGE_RABBITMQ_URL: amqp://evalforge:evalforge@127.0.0.1:5672/
     steps:
       - uses: actions/checkout@v5
 
@@ -200,4 +217,65 @@ jobs:
         with:
           name: cypress-screenshots
           path: frontend/cypress/screenshots
+          retention-days: 7
+
+  load-and-traces:
+    # Charge et traces sur la pile réelle : API, worker, agent, faux fournisseur, PostgreSQL, RabbitMQ, Jaeger.
+    needs: [backend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EVALFORGE_DATABASE_URL: postgresql+asyncpg://evalforge:evalforge@127.0.0.1:5435/evalforge
+      EVALFORGE_RABBITMQ_URL: amqp://evalforge:evalforge@127.0.0.1:5672/
+      EVALFORGE_SECRET_KEY: dGVzdC1jbGUtZmVybmV0LWUyZS0wMTIzNDU2Nzg5YWI=
+      EVALFORGE_JWT_SECRET_KEY: cle-ci-pour-les-jetons-d-acces-0123456789
+      EVALFORGE_COOKIE_SECURE: "false"
+      EVALFORGE_ALLOW_PRIVATE_PROVIDER_URLS: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: PostgreSQL, RabbitMQ, Jaeger et migrations
+        run: |
+          docker run -d --name pg --tmpfs /var/lib/postgresql:rw -e POSTGRES_USER=evalforge -e POSTGRES_PASSWORD=evalforge \
+            -e POSTGRES_DB=evalforge -p 5435:5432 postgres:18-alpine
+          docker run -d --name rabbit --tmpfs /var/lib/rabbitmq:rw -e RABBITMQ_DEFAULT_USER=evalforge \
+            -e RABBITMQ_DEFAULT_PASS=evalforge -p 5672:5672 rabbitmq:4.4-alpine
+          docker run -d --name jaeger -p 4318:4318 -p 16686:16686 jaegertracing/jaeger:2.23.0
+          uv sync --locked --group load
+          until docker exec pg pg_isready -U evalforge -d evalforge; do sleep 1; done
+          until docker logs rabbit 2>&1 | grep -q "Server startup complete"; do sleep 1; done
+          uv run alembic -c apps/api/alembic.ini upgrade head
+
+      - name: Démarrage de la pile
+        run: |
+          uv run python scripts/fake_llm.py 8100 > fake.log 2>&1 &
+          uv run evalforge-support-agent > agent.log 2>&1 &
+          uv run uvicorn evalforge_api.main:create_app --factory --host 127.0.0.1 --port 8000 > api.log 2>&1 &
+          uv run evalforge-worker > worker.log 2>&1 &
+          for url in http://127.0.0.1:8100/docs http://127.0.0.1:8200/health http://127.0.0.1:8000/health http://127.0.0.1:16686/; do
+            until curl -sf "$url" > /dev/null; do sleep 1; done
+          done
+
+      - name: Une trace traverse l'API, le worker et l'agent (export OTLP vers Jaeger)
+        run: uv run python scripts/smoke_trace.py
+
+      - name: Test de charge (20 utilisateurs, 60 s ; aucune erreur, P95 des lectures sous 500 ms, runs terminés)
+        run: |
+          uv run --group load locust -f loadtests/locustfile.py --headless -u 20 -r 5 -t 60s \
+            --host http://127.0.0.1:8000 --only-summary --csv charge --html charge.html
+
+      - name: Rapports et journaux
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: charge-et-traces
+          path: |
+            charge*.csv
+            charge.html
+            *.log
           retention-days: 7

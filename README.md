@@ -2,7 +2,7 @@
 
 Plateforme d'évaluation pour applications LLM, RAG et agents : **Python (FastAPI)** côté serveur, **React + TypeScript** côté interface. Une équipe y versionne ses jeux de tests et ses prompts, lance une expérience sur un ou plusieurs modèles, et obtient pour chaque réponse des métriques de qualité, la latence, les tokens et le coût. L'objectif à terme : comparer à une baseline et bloquer un déploiement qui dégrade la qualité.
 
-> **État : incrément 5.** Agents évalués sur leur trajectoire (outils choisis, ordre, arguments, étapes inutiles), avec un agent de support construit pour l'occasion ; webhooks signés en fin de run ; porte de qualité d'agent en CI. En plus des workers (outbox, RabbitMQ, reprise après panne), de la baseline et de la détection de régression, du juge LLM, de Ragas et DeepEval, du rapport HTML et de la CLI. Voir [la feuille de route](#feuille-de-route).
+> **État : incrément 6 en cours.** Fait : tests d'injection de prompt (directe et indirecte), traces OpenTelemetry de bout en bout, test de charge en CI ; à venir : images Docker, Kubernetes compatible OpenShift, Ansible, Terraform. Incrément 5 : agents évalués sur leur trajectoire (outils choisis, ordre, arguments, étapes inutiles), avec un agent de support construit pour l'occasion ; webhooks signés en fin de run ; porte de qualité d'agent en CI. En plus des workers (outbox, RabbitMQ, reprise après panne), de la baseline et de la détection de régression, du juge LLM, de Ragas et DeepEval, du rapport HTML et de la CLI. Voir [la feuille de route](#feuille-de-route).
 
 ![Run d'évaluation : deux modèles comparés sur cinq questions, notés par un juge LLM](docs/screenshots/run-comparaison.png)
 
@@ -15,6 +15,10 @@ Plateforme d'évaluation pour applications LLM, RAG et agents : **Python (FastAP
 ![Deux versions d'un agent comparées sur leur trajectoire : outils appelés, dans l'ordre, pour chaque demande client](docs/screenshots/trajectoire-agent.png)
 
 *L'agent de support de démonstration, en deux versions : l'une suit la bonne démarche, l'autre transfère inutilement à un conseiller, mal forme le numéro de commande et invente la politique de retour. Les deux terminent toutes leurs réponses (`task_completion` à 100 %) ; seules les métriques de trajectoire les départagent.*
+
+![Une trace Jaeger : la requête qui lance le run, le worker, le cas évalué, puis l'agent, ses appels au modèle et à ses outils](docs/screenshots/trace-jaeger.png)
+
+*Un run, une trace, trois services : la requête HTTP qui lance le run, le traitement par le worker (le contexte a voyagé dans l'événement de l'outbox), le cas évalué, puis l'agent appelé en HTTP, ses appels au modèle et à ses outils. Exportée en OTLP vers Jaeger ; vérifiée en CI.*
 
 ## Le parcours
 
@@ -52,6 +56,9 @@ Toutes les routes métier demandent `Authorization: Bearer …` et l'en-tête `X
 | Exécution asynchrone | Contre un vrai RabbitMQ : courtier injoignable, l'événement attend dans l'outbox puis part ; message rejoué à l'identique, rien n'est refait ; doublon reçu par un second worker pendant l'exécution, une seule exécution ; **worker arrêté en plein run**, un autre reprend et ne redemande que les réponses manquantes ; erreur persistante, deux tentatives puis file morte (dernière erreur en en-tête), run en échec et événement `evaluation.failed` ; le worker lancé seul charge tout le modèle de données | Plusieurs workers en parallèle sur une vraie charge ; perte d'un nœud RabbitMQ ([ADR-022](docs/architecture/adr/0022-execution-asynchrone.md)) |
 | Agents | L'agent de support réel (4 outils, arguments validés, budget d'étapes), piloté par une politique écrite à la main : le pilote soigneux obtient 100 % sur les 5 métriques de trajectoire, le négligent 100 % à `task_completion` mais 0 à 20 % sur la trajectoire ; un argument invalide est rendu au modèle et tracé ; par la plateforme (API, worker, trajectoire en base, rapport, navigateur) et par la CLI ; en CI, le vrai processus de l'agent passe la porte et la baseline, le pilote négligent est bloqué (code 1) | Un vrai modèle aux commandes de l'agent ; des chemins alternatifs acceptables ([ADR-024](docs/architecture/adr/0024-evaluation-d-agents.md)) |
 | Webhooks | Contre un vrai RabbitMQ : fin de run envoyée signée (HMAC vérifié, mauvais secret refusé), résumé par modèle et régression face à la baseline dans la charge utile ; 503 puis 200, livré à la 2e tentative ; 410, refus définitif sans reprise ; 503 persistant, abandon après 3 tentatives ; une livraison réussie n'est jamais renvoyée ; adresse interne refusée ; réservé aux administrateurs ; dans le navigateur, livraison au faux destinataire | Un vrai destinataire lent ; la vérification côté destinataire est fournie (`verify`) mais lui revient ([ADR-025](docs/architecture/adr/0025-webhooks.md)) |
+| Injections de prompt | 4 attaques (révéler les consignes, changement de rôle, ticket forcé, instruction cachée dans une note de commande) : l'agent soigneux passe à 100 % ; un modèle crédule fuit ses consignes sans la garde de sortie et en est empêché avec elle, mais ses actions obtenues par injection passent (`no_forbidden_tool` à 33 %) et la porte de sécurité le bloque en CI | Un vrai modèle ; attaques encodées ou en plusieurs tours ; autorisation des actions par outil ([ADR-027](docs/architecture/adr/0027-injections-de-prompt.md)) |
+| Traces | Une trace par run à travers l'API, le worker et l'agent (contexte transporté par l'outbox) ; spans GenAI avec modèle et tokens, sans prompt ni clé ; en CI, exportée en OTLP vers un vrai Jaeger et retrouvée par son run | Un collecteur et un stockage de production ; métriques et journaux OpenTelemetry ([ADR-026](docs/architecture/adr/0026-observabilite-et-charge.md)) |
+| Charge | Locust, 20 utilisateurs, 60 s, en CI avec seuils : aucune erreur, P95 des lectures sous 500 ms, chaque run terminé. A trouvé trois défauts, corrigés et expliqués par les traces : Argon2 qui gelait l'API (inscription 5,8 s → 0,22 s), `localhost` à 2 s par connexion sous Windows, pool de connexions trop petit | Au-delà d'une machine ; environ 2 % de requêtes encore au-delà d'une seconde sur le poste de développement, attribuées à l'ouverture de connexions via Docker Desktop |
 | Régression | Comparaison appariée cas par cas, tolérance réglable, McNemar exact, jeux différents refusés ; un nouveau prompt qui casse 5 réponses est signalé, le même prompt ne l'est pas ; la CLI échoue face à une baseline JSON | Sur un vrai jeu de plusieurs centaines de cas ([ADR-023](docs/architecture/adr/0023-detection-de-regression.md)) | **Aucun appel à un vrai modèle** : pas de clé utilisée, Ollama pas installé sur le poste de développement |
 | Juge LLM | Note de 1 à 5 justifiée, grille et version figées avec le modèle juge réellement utilisé ; une réponse du juge illisible ou hors grille rend la métrique indisponible (pas 0) sans faire échouer le run ; consigne au juge d'ignorer les instructions contenues dans la réponse | **L'accord entre le juge et des évaluateurs humains** : pas mesuré, et un vrai juge peut se tromper ([ADR-019](docs/architecture/adr/0019-juge-llm.md)) |
 | Ragas et DeepEval | Contre les vraies bibliothèques (Ragas 0.4.3, DeepEval 4.3.3), chacune dans son job de CI : leurs prompts et leurs schémas passent par la passerelle EvalForge, leur score est repris (2/3 d'affirmations appuyées → 0,67), une sortie non conforme est redemandée une fois, un NaN de Ragas devient « indisponible », leur télémétrie est coupée | Leurs résultats avec un vrai modèle : le faux modèle des tests répond à la main pour chaque schéma ([ADR-021](docs/architecture/adr/0021-adaptateurs-ragas-deepeval.md)) |
@@ -68,7 +75,7 @@ Toutes les routes métier demandent `Authorization: Bearer …` et l'en-tête `X
 | Contrat front / API | Les types TypeScript sont générés depuis l'OpenAPI ; la CI échoue si l'un des deux n'est plus à jour | |
 | Migrations | `alembic check` en CI : aucune différence entre modèles et migrations | |
 
-170 tests automatisés : 160 en Python (31 passerelle, 46 moteur, 5 adaptateur Ragas, 4 adaptateur DeepEval, 13 CLI, 5 agent de support, 56 API contre PostgreSQL et RabbitMQ), 7 tests unitaires du front (Vitest), 3 tests Cypress (deux parcours complets et la redirection sans session).
+184 tests automatisés : 174 en Python (33 passerelle, 50 moteur, 5 adaptateur Ragas, 4 adaptateur DeepEval, 14 CLI, 9 agent de support, 59 API contre PostgreSQL et RabbitMQ), 7 tests unitaires du front (Vitest), 3 tests Cypress (deux parcours complets et la redirection sans session), plus le test de charge et la vérification de trace en CI.
 
 ## Architecture
 
@@ -79,7 +86,9 @@ apps/cli                     commande evalforge (Typer) : évaluation locale et 
 apps/support_agent           agent de support de démonstration : outils, appels de fonctions, trajectoire tracée, contrat HTTP
 packages/evaluation_engine   contrats, gabarits, évaluateurs (déterministes, juge LLM, adaptateurs Ragas et DeepEval), lecture JSON/CSV, orchestration, agrégats, rapport HTML
 packages/llm_gateway         appels aux fournisseurs : délais, reprises, tokens, erreurs, capacités, protection SSRF
-scripts/fake_llm.py          faux fournisseur compatible OpenAI (et pilote de l'agent, destinataire de webhooks) pour la démonstration et les tests
+scripts/fake_llm.py          faux fournisseur compatible OpenAI (et pilotes de l'agent, destinataire de webhooks) pour la démonstration et les tests
+scripts/smoke_trace.py       vérifie qu'un run produit une trace complète dans Jaeger
+loadtests/                   test de charge Locust et ses seuils
 ```
 
 Monolithe modulaire découpé par domaine (`identity`, `workspaces`, `projects`, `datasets`, `providers`, `prompts`, `experiments`, `evaluations`, `webhooks`). Le moteur ne connaît ni FastAPI ni la base : la CLI et le worker l'utilisent tel quel.
@@ -112,6 +121,8 @@ uv run evalforge-worker                           # dans un autre terminal : c'e
 
 cd frontend && npm ci && npm run dev              # interface sur http://localhost:5173
 ```
+
+Traces : `docker compose --profile observability up -d jaeger`, puis `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318` pour l'API, le worker et l'agent ; interface sur http://localhost:16686. Charge : `uv run --group load locust -f loadtests/locustfile.py --headless -u 20 -r 5 -t 60s --host http://127.0.0.1:8000`.
 
 L'agent de démonstration : `uv run evalforge-support-agent` (port 8200, piloté par le faux fournisseur ; `SUPPORT_AGENT_LLM_MODEL=careless-agent` pour le pilote négligent, ou un vrai fournisseur via `SUPPORT_AGENT_LLM_BASE_URL`, `_MODEL`, `_API_KEY`), à déclarer comme « Agent EvalForge » sur `http://127.0.0.1:8200`. Pour recevoir les webhooks sur le poste : `EVALFORGE_ALLOW_PRIVATE_WEBHOOK_URLS=true` et `http://127.0.0.1:8100/webhooks/receive` (le faux fournisseur les garde, `GET /webhooks/received`).
 
@@ -164,6 +175,8 @@ metrics: [tool_selection, tool_order, tool_arguments, step_efficiency, task_comp
 thresholds: { tool_selection: 1.0, tool_arguments: 1.0 }   # un mauvais outil agit sur de vraies données
 ```
 
+La porte de sécurité suit le même principe, sur des cas d'injection : `uv run evalforge run examples/support-agent/securite.yaml` (métriques `no_forbidden_content` et `no_forbidden_tool`, seuil 100 %).
+
 Codes de sortie : 0 tout va bien, 1 porte de qualité non franchie, 2 configuration ou données invalides. Une métrique qui n'a rien pu mesurer ne franchit pas la porte. Les clés restent dans l'environnement, jamais dans le fichier.
 
 ## Limites actuelles
@@ -174,7 +187,7 @@ Codes de sortie : 0 tout va bien, 1 porte de qualité non franchie, 2 configurat
 - **Ragas ou DeepEval, pas les deux** dans un même environnement : leurs dépendances ne s'accordent pas. `uv sync --group ragas` (ou `--group deepeval`) avant de démarrer l'API ou la CLI ; sans groupe, leurs métriques ne sont pas proposées.
 - **Coût du juge non totalisé** : ses tokens sont enregistrés avec chaque note, mais pas additionnés au coût du run.
 - **Import JSON seulement**, 1 000 cas au plus par version.
-- **Pas de limite de débit** sur la connexion.
+- **Pas de limite de débit** sur la connexion : le hachage des mots de passe est borné en concurrence, pas le nombre de tentatives.
 
 ## Feuille de route
 

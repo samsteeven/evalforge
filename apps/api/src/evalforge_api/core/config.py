@@ -7,7 +7,9 @@ class DatabaseSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="EVALFORGE_", env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql+asyncpg://evalforge:evalforge@localhost:5435/evalforge"
+    # 127.0.0.1 plutôt que localhost : sous Windows, localhost essaie d'abord ::1, où Docker n'écoute pas, et chaque
+    # nouvelle connexion perd 2 s avant de se rabattre sur IPv4 (mesuré par le test de charge, ADR-026).
+    database_url: str = "postgresql+asyncpg://evalforge:evalforge@127.0.0.1:5435/evalforge"
 
 
 class Settings(DatabaseSettings):
@@ -23,8 +25,12 @@ class Settings(DatabaseSettings):
     allow_private_provider_urls: bool = False
     provider_timeout_seconds: float = 60.0
 
+    # Connexions gardées ouvertes par processus, et surplus temporaire en pointe (ouvert puis refermé).
+    database_pool_size: int = 20
+    database_max_overflow: int = 10
+
     # Messagerie : l'API écrit dans l'outbox et publie ; les workers consomment.
-    rabbitmq_url: str = "amqp://evalforge:evalforge@localhost:5672/"
+    rabbitmq_url: str = "amqp://evalforge:evalforge@127.0.0.1:5672/"
     # Préfixe des échanges et files : plusieurs environnements (ou tests) partagent un courtier sans se mélanger.
     rabbitmq_prefix: str = "evalforge"
     outbox_interval_seconds: float = 2.0

@@ -124,7 +124,9 @@ def require_csrf_header(value: str | None) -> None:
 
 @router.post("/register", status_code=201, response_model=SessionOut)
 async def register(body: RegisterIn, request: Request, response: Response, session: SessionDep) -> SessionOut:
-    user = User(email=body.email.lower(), password_hash=request.app.state.passwords.hash(body.password))
+    # Argon2 est coûteux par construction : hors de la boucle d'événements, en nombre borné (voir Passwords).
+    password_hash = await request.app.state.passwords.hash_async(body.password)
+    user = User(email=body.email.lower(), password_hash=password_hash)
     session.add(user)
     try:
         await session.flush()
@@ -139,7 +141,8 @@ async def register(body: RegisterIn, request: Request, response: Response, sessi
 @router.post("/login", response_model=SessionOut)
 async def login(body: LoginIn, request: Request, response: Response, session: SessionDep) -> SessionOut:
     user = await session.scalar(select(User).where(User.email == body.email.lower()))
-    if not request.app.state.passwords.verify(user.password_hash if user else None, body.password):
+    valid = await request.app.state.passwords.verify_async(user.password_hash if user else None, body.password)
+    if not valid:
         raise unauthorized("E-mail ou mot de passe incorrect")
     out, _ = await open_session(request, response, session, user)
     await session.commit()

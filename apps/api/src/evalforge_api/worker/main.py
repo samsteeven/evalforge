@@ -25,6 +25,11 @@ from datetime import timedelta
 import aio_pika
 import httpx
 from aio_pika.abc import AbstractChannel, AbstractIncomingMessage, AbstractRobustConnection
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from opentelemetry.propagate import extract
+from opentelemetry.trace import SpanKind, Status, StatusCode
+from opentelemetry.trace import get_current_span as trace_current_span
 from pydantic import ValidationError
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -49,6 +54,7 @@ from evalforge_api.modules.evaluations.runner import (
 from evalforge_api.modules.providers.factory import ProviderFactory, http_provider_factory
 from evalforge_api.modules.webhooks.delivery import WEBHOOK_EVENTS, dispatch
 from evalforge_llm.network import SafeTransport
+from evalforge_llm.telemetry import configure_telemetry, tracer
 
 log = logging.getLogger("evalforge.worker")
 
@@ -78,7 +84,13 @@ class Worker:
 
     async def start(self) -> None:
         settings = self.settings
-        self._engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        self._engine = create_async_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            pool_size=settings.database_pool_size,
+            max_overflow=settings.database_max_overflow,
+        )
+        SQLAlchemyInstrumentor().instrument(engine=self._engine.sync_engine, skip_dep_check=True)
         self.session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
         self._http = httpx.AsyncClient(transport=SafeTransport(allow_private=settings.allow_private_provider_urls))
         self.provider_factory = self._provider_factory or http_provider_factory(
@@ -161,6 +173,12 @@ class Worker:
 
         attempt = int((message.headers or {}).get(ATTEMPT_HEADER, 1))
         final = attempt >= self.settings.webhook_max_attempts
+        with self._consumer_span(envelope, self.topology.webhooks, attempt):
+            await self._dispatch_webhooks(message, envelope, attempt, final)
+
+    async def _dispatch_webhooks(
+        self, message: AbstractIncomingMessage, envelope: Envelope, attempt: int, final: bool
+    ) -> None:
         try:
             pending = await dispatch(
                 self.session_factory,
@@ -208,7 +226,25 @@ class Worker:
             return
 
         attempt = int((message.headers or {}).get(ATTEMPT_HEADER, 1))
-        await self._handle(message, envelope, request, attempt)
+        with self._consumer_span(envelope, self.topology.evaluations, attempt) as span:
+            span.set_attribute("evalforge.run.id", str(request.run_id))
+            await self._handle(message, envelope, request, attempt)
+
+    def _consumer_span(self, envelope: Envelope, queue: str, attempt: int):
+        """Continue la trace de la requête qui a produit l'événement, même après l'outbox ou une reprise."""
+        return tracer.start_as_current_span(
+            f"process {envelope.event_type}",
+            context=extract(envelope.trace_context),
+            kind=SpanKind.CONSUMER,
+            attributes={
+                "messaging.system": "rabbitmq",
+                "messaging.operation.type": "process",
+                "messaging.destination.name": queue,
+                "messaging.message.id": str(envelope.event_id),
+                "evalforge.worker.id": self.worker_id,
+                "evalforge.attempt": attempt,
+            },
+        )
 
     async def _handle(
         self, message: AbstractIncomingMessage, envelope: Envelope, request: EvaluationRequested, attempt: int
@@ -242,6 +278,9 @@ class Worker:
                 )
         except Exception as error:
             reason = f"{type(error).__name__} : {error}"
+            span = trace_current_span()
+            span.record_exception(error)
+            span.set_status(Status(StatusCode.ERROR, reason))
             log.exception("Run %s en échec (tentative %d/%d)", run_id, attempt, self.settings.max_attempts)
             if attempt >= self.settings.max_attempts:
                 await finish_run(
@@ -300,6 +339,9 @@ class Worker:
 
 
 async def run_forever() -> None:
+    if configure_telemetry("evalforge-worker"):
+        # Les appels HTTP sortants (agents évalués, webhooks) portent le traceparent : l'agent continue la trace.
+        HTTPXClientInstrumentor().instrument()
     worker = Worker(Settings())
     await worker.start()
     try:
