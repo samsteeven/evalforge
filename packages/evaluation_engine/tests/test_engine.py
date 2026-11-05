@@ -68,7 +68,7 @@ async def test_sans_reponse_attendue_la_metrique_est_indisponible_pas_nulle():
 
 
 def test_registre_des_metriques():
-    assert available_metrics() == ["contains_expected", "exact_match", "judge_correctness", "judge_faithfulness"]
+    assert {"contains_expected", "exact_match", "judge_correctness", "judge_faithfulness"} <= set(available_metrics())
     with pytest.raises(KeyError, match="faithfulness"):
         build_evaluators(["exact_match", "faithfulness"])
 

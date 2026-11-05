@@ -2,7 +2,7 @@
 
 Plateforme d'évaluation pour applications LLM, RAG et agents : **Python (FastAPI)** côté serveur, **React + TypeScript** côté interface. Une équipe y versionne ses jeux de tests et ses prompts, lance une expérience sur un ou plusieurs modèles, et obtient pour chaque réponse des métriques de qualité, la latence, les tokens et le coût. L'objectif à terme : comparer à une baseline et bloquer un déploiement qui dégrade la qualité.
 
-> **État : incrément 3 en cours.** Juge LLM, import CSV, rapport HTML et CLI avec porte de qualité sont livrés ; les adaptateurs Ragas et DeepEval sont la prochaine étape. Pas encore de RabbitMQ : voir [la feuille de route](#feuille-de-route).
+> **État : incrément 3.** Juge LLM, métriques Ragas et DeepEval, import CSV, rapport HTML, CLI avec porte de qualité. Pas encore de RabbitMQ ni de baseline : voir [la feuille de route](#feuille-de-route).
 
 ![Run d'évaluation : deux modèles comparés sur cinq questions, notés par un juge LLM](docs/screenshots/run-comparaison.png)
 
@@ -36,6 +36,7 @@ Toutes les routes métier demandent `Authorization: Bearer …` et l'en-tête `X
 |---|---|---|
 | Parcours complet | **Cypress dans un vrai navigateur**, contre l'API, PostgreSQL et un faux fournisseur HTTP : de l'inscription à la comparaison, avec import CSV, juge LLM et rapport HTML téléchargé puis relu (10 réponses, 100 % contre 0 %, coût connu contre « inconnu »). En CI à chaque push | **Aucun appel à un vrai modèle** : pas de clé utilisée, Ollama pas installé sur le poste de développement |
 | Juge LLM | Note de 1 à 5 justifiée, grille et version figées avec le modèle juge réellement utilisé ; une réponse du juge illisible ou hors grille rend la métrique indisponible (pas 0) sans faire échouer le run ; consigne au juge d'ignorer les instructions contenues dans la réponse | **L'accord entre le juge et des évaluateurs humains** : pas mesuré, et un vrai juge peut se tromper ([ADR-019](docs/architecture/adr/0019-juge-llm.md)) |
+| Ragas et DeepEval | Contre les vraies bibliothèques (Ragas 0.4.3, DeepEval 4.3.3), chacune dans son job de CI : leurs prompts et leurs schémas passent par la passerelle EvalForge, leur score est repris (2/3 d'affirmations appuyées → 0,67), une sortie non conforme est redemandée une fois, un NaN de Ragas devient « indisponible », leur télémétrie est coupée | Leurs résultats avec un vrai modèle : le faux modèle des tests répond à la main pour chaque schéma ([ADR-021](docs/architecture/adr/0021-adaptateurs-ragas-deepeval.md)) |
 | Import de fichiers | CSV au séparateur détecté (virgule, point-virgule, tabulation), BOM d'Excel, UTF-8 exigé ; un CSV et un JSON décrivant les mêmes cas donnent la même empreinte, donc la même version | Fichiers de plus de 2 Mo ou 1 000 cas : refusés |
 | CLI | L'exemple tourne de bout en bout contre le faux fournisseur, en mémoire en test et en HTTP réel sur le poste ; la porte de qualité bloque le modèle vague (code 1) ; configuration invalide, clé absente ou adresse interne : code 2 avec un message | |
 | Sessions | Jeton d'accès de 15 min ; jeton de renouvellement en cookie `HttpOnly`, remplacé à chaque usage ; un jeton rejoué révoque toute la session ; en-tête anti-CSRF exigé ; jetons expirés ou falsifiés refusés | Plusieurs onglets qui renouvellent exactement au même instant ([ADR-016](docs/architecture/adr/0016-sessions.md)) |
@@ -49,7 +50,7 @@ Toutes les routes métier demandent `Authorization: Bearer …` et l'en-tête `X
 | Contrat front / API | Les types TypeScript sont générés depuis l'OpenAPI ; la CI échoue si l'un des deux n'est plus à jour | |
 | Migrations | `alembic check` en CI : aucune différence entre modèles et migrations | |
 
-118 tests automatisés : 111 en Python (30 passerelle, 34 moteur, 8 CLI, 39 API contre PostgreSQL), 5 tests unitaires du front (Vitest), 2 parcours Cypress.
+127 tests automatisés : 120 en Python (30 passerelle, 34 moteur, 5 adaptateur Ragas, 4 adaptateur DeepEval, 8 CLI, 39 API contre PostgreSQL), 5 tests unitaires du front (Vitest), 2 parcours Cypress.
 
 ## Architecture
 
@@ -57,7 +58,7 @@ Toutes les routes métier demandent `Authorization: Bearer …` et l'en-tête `X
 frontend/                    React 19, TypeScript, Vite, TanStack Query, React Router, Tailwind ; client typé openapi-fetch
 apps/api                     FastAPI, SQLAlchemy 2 async, Alembic : l'API et l'exécution des runs
 apps/cli                     commande evalforge (Typer) : évaluation locale et porte de qualité, même moteur
-packages/evaluation_engine   contrats, gabarits, évaluateurs (déterministes, juge LLM), lecture JSON/CSV, orchestration, agrégats, rapport HTML
+packages/evaluation_engine   contrats, gabarits, évaluateurs (déterministes, juge LLM, adaptateurs Ragas et DeepEval), lecture JSON/CSV, orchestration, agrégats, rapport HTML
 packages/llm_gateway         appels aux fournisseurs : délais, reprises, tokens, erreurs, capacités, protection SSRF
 scripts/fake_llm.py          faux fournisseur compatible OpenAI pour la démonstration et le test de bout en bout
 ```
@@ -90,7 +91,7 @@ npm run typecheck && npm run lint && npm test     # types, lint, Vitest
 npm run e2e                                       # Cypress : démarre faux fournisseur, API et front (base migrée requise)
 ```
 
-`EVALFORGE_TEST_DATABASE_URL` fait tourner les tests Python sur une base déjà démarrée. `EVALFORGE_SCREENSHOTS=1 npm run e2e` reprend les captures du README (dans `frontend/cypress/screenshots`).
+`EVALFORGE_TEST_DATABASE_URL` fait tourner les tests Python sur une base déjà démarrée. Les adaptateurs : `uv run --group ragas pytest packages/evaluation_engine/tests/test_adapter_ragas.py` (idem avec `deepeval`) ; sans le groupe, ces tests sont ignorés. `EVALFORGE_SCREENSHOTS=1 npm run e2e` reprend les captures du README (dans `frontend/cypress/screenshots`).
 
 Après une modification de l'API : `uv run python -m evalforge_api.openapi_export frontend/openapi.json`, puis `npm run api:types` dans `frontend`.
 
@@ -120,7 +121,7 @@ Codes de sortie : 0 tout va bien, 1 porte de qualité non franchie, 2 configurat
 
 - **Exécution dans le processus de l'API** ([ADR-013](docs/architecture/adr/0013-execution-dans-l-api-provisoire.md)) : un run en cours est perdu si l'API s'arrête (il est marqué « interrupted »). Remplacée par outbox, RabbitMQ et workers à l'incrément 4.
 - **Pas d'e-mail** : un administrateur ajoute un compte existant par son adresse ; pas d'invitation ni de réinitialisation de mot de passe. L'ajout révèle si une adresse a un compte, à un administrateur seulement.
-- **Pas encore de métriques Ragas ni DeepEval** : les métriques sont déterministes (`exact_match`, `contains_expected`) ou notées par le juge LLM d'EvalForge (`judge_correctness`, `judge_faithfulness`).
+- **Ragas ou DeepEval, pas les deux** dans un même environnement : leurs dépendances ne s'accordent pas. `uv sync --group ragas` (ou `--group deepeval`) avant de démarrer l'API ou la CLI ; sans groupe, leurs métriques ne sont pas proposées.
 - **Coût du juge non totalisé** : ses tokens sont enregistrés avec chaque note, mais pas additionnés au coût du run.
 - **Import JSON seulement**, 1 000 cas au plus par version.
 - **Pas de limite de débit** sur la connexion.
@@ -131,7 +132,7 @@ Codes de sortie : 0 tout va bien, 1 porte de qualité non franchie, 2 configurat
 |---|---|---|
 | 1 | Tranche verticale backend : projets, jeux et prompts versionnés, fournisseurs, expériences, runs, métriques déterministes, latence, tokens, coût | **fait** |
 | 2 | Interface React + TypeScript, comptes, sessions et rôles, protection SSRF, tests Cypress | **fait** |
-| 3 | Juge LLM, import CSV, CLI et porte de qualité, rapport HTML : **fait** ; adaptateurs Ragas et DeepEval : en cours | en cours |
+| 3 | Juge LLM, adaptateurs Ragas et DeepEval, import CSV, CLI et porte de qualité, rapport HTML | **fait** |
 | 4 | Outbox, RabbitMQ (aio-pika), workers, reprises et file morte ; baseline et détection de régression | à faire |
 | 5 | Un agent de support construit pour l'occasion (outils, appels de fonctions), évalué par EvalForge : trajectoires, choix des outils et de leurs arguments ; webhooks et contrôle qualité en CI | à faire |
 | 6 | Tests de prompt injection, OpenTelemetry, charge ; images Docker de l'API et du front, manifestes Kubernetes compatibles OpenShift (conteneurs non root, testés en CI sur un cluster local), playbook Ansible de déploiement, Terraform et AWS (ECS Fargate) | à faire |

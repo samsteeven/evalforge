@@ -100,7 +100,7 @@
         <td>{% if r.status == "success" %}{{ r.output }}{% else %}<span class="ko">{{ r.status }} : {{ r.error }}</span>{% endif %}</td>
         <td>
           {% for m in r.metrics %}
-            <div class="metric"><span class="{{ 'ok' if m.passed else 'ko' if m.passed is not none else 'muted' }}">{{ '✓' if m.passed else '✗' if m.passed is not none else '—' }}</span> {{ m.name }}{% if m.score is not none and m.name.startswith("judge_") %} ({{ m.score | percent }}){% endif %}{% if m.reason %}<br><span class="note">{{ m.reason }}</span>{% endif %}</div>
+            <div class="metric"><span class="{{ 'ok' if m.passed else 'ko' if m.passed is not none else 'muted' }}">{{ '✓' if m.passed else '✗' if m.passed is not none else '—' }}</span> {{ m.name }}{% if m.score is not none and m.name.startswith(("judge_", "ragas_", "deepeval_")) %} ({{ m.score | percent }}){% endif %}{% if m.reason %}<br><span class="note">{{ m.reason }}</span>{% endif %}</div>
           {% endfor %}
         </td>
         <td class="num">{{ r.latency_ms | ms }}</td>

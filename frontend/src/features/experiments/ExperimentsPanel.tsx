@@ -8,6 +8,8 @@ import { RUN_STATUS, when } from '../../lib/format'
 
 type VersionChoice = { id: string; label: string }
 
+const METHOD_LABEL: Record<string, string> = { llm_judge: 'juge LLM', ragas: 'Ragas', deepeval: 'DeepEval' }
+
 /** Toutes les versions de tous les jeux du projet : un run vise toujours une version immuable. */
 function useDatasetVersions(projectId: string) {
   return useQuery({
@@ -248,7 +250,7 @@ function CreateExperiment({ projectId, prompts }: { projectId: string; prompts: 
                 <code>{metric.name}</code>
                 {metric.needs_judge && (
                   <span className="ml-2">
-                    <Badge tone="warning">juge LLM</Badge>
+                    <Badge tone="warning">{METHOD_LABEL[metric.method] ?? metric.method}</Badge>
                   </span>
                 )}
                 <span className="block text-xs text-slate-500">{metric.description}</span>

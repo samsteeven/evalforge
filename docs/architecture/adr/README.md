@@ -9,7 +9,7 @@
 | 005 | Outbox transactionnelle | acceptée, incrément 4 |
 | 006 | PostgreSQL pour la persistance | acceptée, appliquée |
 | 007 | pgvector seulement si une fonctionnalité interne le justifie : EvalForge évalue des RAG externes | acceptée, hors MVP |
-| 008 | Ragas et DeepEval derrière des adaptateurs internes | acceptée, incrément 3 |
+| 008 | Ragas et DeepEval derrière des adaptateurs internes | acceptée, appliquée ([021](0021-adaptateurs-ragas-deepeval.md)) |
 | 009 | OpenTelemetry | acceptée, incrément 6 |
 | [010](0010-react-typescript.md) | React et TypeScript pour l'interface (au lieu de Vue 3) | acceptée, appliquée |
 | 011 | ECS Fargate plutôt que Kubernetes | acceptée, incrément 6 |
@@ -22,5 +22,6 @@
 | [018](0018-outils-de-test-du-front.md) | Vitest et Cypress pour le front | acceptée, appliquée |
 | [019](0019-juge-llm.md) | Juge LLM natif à grilles versionnées ; réponse illisible = métrique indisponible | acceptée, appliquée |
 | [020](0020-cli-porte-de-qualite.md) | CLI qui partage le moteur et sert de porte de qualité en CI | acceptée, appliquée |
+| [021](0021-adaptateurs-ragas-deepeval.md) | Ragas et DeepEval derrière la passerelle EvalForge, en dépendances optionnelles | acceptée, appliquée |
 
 Les ADR 003 à 012 sont rédigées en détail à l'incrément qui les met en œuvre ; leur justification d'origine est dans [vision.md](../vision.md).

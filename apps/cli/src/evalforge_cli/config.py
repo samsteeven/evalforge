@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from evalforge_engine.evaluators import METRICS, needs_judge
+from evalforge_engine.evaluators import METRICS, available_metrics, needs_judge
 from evalforge_llm.network import UnsafeDestinationError, check_url
 
 
@@ -79,8 +79,12 @@ class EvalConfig(Strict):
         unknown = [name for name in self.metrics if name not in METRICS]
         if unknown:
             raise ValueError(f"métriques inconnues : {', '.join(unknown)} (disponibles : {', '.join(sorted(METRICS))})")
+        absent = [name for name in self.metrics if name not in available_metrics()]
+        if absent:
+            group = METRICS[absent[0]].method
+            raise ValueError(f"{', '.join(absent)} : bibliothèque {group} non installée (uv sync --group {group})")
         if needs_judge(self.metrics) and self.judge is None:
-            raise ValueError("les métriques judge_* demandent une section judge")
+            raise ValueError("ces métriques interrogent un modèle : section judge requise")
         stray = [name for name in self.thresholds if name not in self.metrics]
         if stray:
             raise ValueError(f"seuil pour une métrique non mesurée : {', '.join(stray)}")

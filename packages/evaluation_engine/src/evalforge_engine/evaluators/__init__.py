@@ -1,5 +1,6 @@
 """Registre des métriques : ce que chacune mesure, ce dont elle a besoin, et comment la construire."""
 
+import importlib.util
 from dataclasses import dataclass
 from typing import Literal
 
@@ -7,7 +8,7 @@ from evalforge_engine.contracts import Evaluator
 from evalforge_engine.evaluators.deterministic import ContainsExpected, ExactMatch
 from evalforge_engine.evaluators.llm_judge import CORRECTNESS, FAITHFULNESS, JudgeModel, LLMJudge
 
-Method = Literal["deterministic", "llm_judge"]
+Method = Literal["deterministic", "llm_judge", "ragas", "deepeval"]
 
 
 @dataclass(frozen=True)
@@ -20,7 +21,13 @@ class MetricSpec:
 
     @property
     def needs_judge(self) -> bool:
+        """Toutes les méthodes autres que déterministes interrogent un modèle : le modèle juge de l'expérience."""
         return self.method != "deterministic"
+
+    @property
+    def installed(self) -> bool:
+        """Ragas et DeepEval sont des groupes de dépendances optionnels (uv sync --group ragas / deepeval)."""
+        return self.method not in ("ragas", "deepeval") or importlib.util.find_spec(self.method) is not None
 
 
 METRICS: dict[str, MetricSpec] = {
@@ -54,12 +61,34 @@ METRICS: dict[str, MetricSpec] = {
             requires_expected=False,
             requires_context=True,
         ),
+        MetricSpec(
+            "ragas_faithfulness",
+            "Ragas : part des affirmations de la réponse appuyées par le contexte (plusieurs appels au juge)",
+            "ragas",
+            requires_expected=False,
+            requires_context=True,
+        ),
+        MetricSpec(
+            "deepeval_faithfulness",
+            "DeepEval : affirmations de la réponse confrontées aux faits du contexte, avec justification",
+            "deepeval",
+            requires_expected=False,
+            requires_context=True,
+        ),
+        MetricSpec(
+            "deepeval_answer_relevancy",
+            "DeepEval : part des énoncés de la réponse qui répondent à la question",
+            "deepeval",
+            requires_expected=False,
+            requires_context=False,
+        ),
     )
 }
 
 
 def available_metrics() -> list[str]:
-    return sorted(METRICS)
+    """Les métriques utilisables ici : celles d'une bibliothèque non installée sont absentes."""
+    return sorted(name for name, spec in METRICS.items() if spec.installed)
 
 
 def needs_judge(names: list[str]) -> bool:
@@ -70,6 +99,9 @@ def build_evaluators(names: list[str], judge: JudgeModel | None = None) -> list[
     unknown = [name for name in names if name not in METRICS]
     if unknown:
         raise KeyError(f"métriques inconnues : {', '.join(unknown)}")
+    missing = sorted({METRICS[name].method for name in names if not METRICS[name].installed})
+    if missing:
+        raise ValueError(f"bibliothèque non installée : {', '.join(missing)} (uv sync --group {missing[0]})")
     if needs_judge(names) and judge is None:
         raise ValueError("ces métriques demandent un modèle juge")
 
@@ -84,6 +116,18 @@ def build_evaluators(names: list[str], judge: JudgeModel | None = None) -> list[
                 evaluators.append(LLMJudge(name, CORRECTNESS, judge))  # type: ignore[arg-type]
             case "judge_faithfulness":
                 evaluators.append(LLMJudge(name, FAITHFULNESS, judge))  # type: ignore[arg-type]
+            case "ragas_faithfulness":
+                from evalforge_engine.adapters.ragas_adapter import RagasFaithfulness
+
+                evaluators.append(RagasFaithfulness(judge))  # type: ignore[arg-type]
+            case "deepeval_faithfulness":
+                from evalforge_engine.adapters.deepeval_adapter import DeepEvalFaithfulness
+
+                evaluators.append(DeepEvalFaithfulness(judge))  # type: ignore[arg-type]
+            case "deepeval_answer_relevancy":
+                from evalforge_engine.adapters.deepeval_adapter import DeepEvalAnswerRelevancy
+
+                evaluators.append(DeepEvalAnswerRelevancy(judge))  # type: ignore[arg-type]
     return evaluators
 
 

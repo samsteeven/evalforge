@@ -28,7 +28,7 @@ class ExperimentCreate(BaseModel):
     @model_validator(mode="after")
     def judge_when_needed(self) -> "ExperimentCreate":
         if needs_judge(self.metrics) and self.judge_model_configuration_id is None:
-            raise ValueError("les métriques judge_* demandent un modèle juge (judge_model_configuration_id)")
+            raise ValueError("ces métriques interrogent un modèle : modèle juge requis (judge_model_configuration_id)")
         if not needs_judge(self.metrics):
             self.judge_model_configuration_id = None  # pas de juge inutile figé dans les runs
         return self

@@ -116,6 +116,9 @@ export function RunPage() {
   )
 }
 
+/** Métriques notées par un modèle (juge, Ragas, DeepEval) : score continu et justification à afficher. */
+const isModelScored = (name: string) => /^(judge|ragas|deepeval)_/.test(name)
+
 function DownloadReport({ runId }: { runId: string }) {
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
@@ -182,16 +185,17 @@ function ResultsTable({ results }: { results: Schemas['ResultOut'][] }) {
                     <Badge key={metric.name} tone={metric.passed == null ? 'neutral' : metric.passed ? 'success' : 'danger'}>
                       <span title={metric.reason ?? undefined}>
                         {metric.passed == null ? '—' : metric.passed ? '✓' : '✗'} {metric.name}
-                        {metric.name.startsWith('judge_') && metric.score != null && ` ${percent(metric.score)}`}
+                        {isModelScored(metric.name) && metric.score != null && ` ${percent(metric.score)}`}
                       </span>
                     </Badge>
                   ))}
                 </div>
                 {result.metrics
-                  .filter((metric) => metric.name.startsWith('judge_') && metric.reason)
+                  .filter((metric) => isModelScored(metric.name) && metric.reason)
                   .map((metric) => (
                     <p key={metric.name} className="mt-1 text-xs text-slate-500">
-                      Juge : {metric.reason}
+                      {metric.name.startsWith('judge_') ? 'Juge' : metric.name.split('_')[0] === 'ragas' ? 'Ragas' : 'DeepEval'} :{' '}
+                      {metric.reason}
                     </p>
                   ))}
               </td>
