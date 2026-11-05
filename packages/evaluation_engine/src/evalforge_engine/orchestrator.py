@@ -75,6 +75,9 @@ async def _evaluate_one(item: WorkItem, evaluators: Sequence[Evaluator], timeout
         actual_output=output.text,
         expected_output=item.case.expected_answer,
         context=item.case.context,
+        expected=item.case.expected,
+        trajectory=output.trajectory,
+        stop_reason=output.stop_reason,
     )
     metrics = [await _measure(evaluator, data) for evaluator in evaluators]
     return CaseOutcome(item.key, item.case, CaseStatus.SUCCESS, output=output, metrics=metrics)

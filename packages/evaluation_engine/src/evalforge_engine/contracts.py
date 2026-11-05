@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 
 class EvaluationCase(BaseModel):
     id: str
-    type: Literal["qa", "rag"] = "qa"
+    # agent : expected peut contenir tools (outils attendus, dans l'ordre) et arguments ({outil: {argument: valeur}}).
+    type: Literal["qa", "rag", "agent"] = "qa"
     input: dict[str, Any]
     expected: dict[str, Any] | None = None
     context: list[str] = Field(default_factory=list)
@@ -25,6 +26,10 @@ class EvaluationInput(BaseModel):
     actual_output: Any
     expected_output: Any | None = None
     context: list[str] = Field(default_factory=list)
+    # Pour les agents : l'attendu complet (outils, arguments) et la trajectoire réellement suivie.
+    expected: dict[str, Any] | None = None
+    trajectory: list[dict[str, Any]] | None = None
+    stop_reason: str | None = None
 
 
 class MetricOutput(BaseModel):
@@ -51,6 +56,9 @@ class TargetOutput(BaseModel):
     output_tokens: int | None = None
     model: str | None = None
     request_id: str | None = None
+    # Agents : étapes suivies (outil, arguments, statut, résultat) et raison de l'arrêt.
+    trajectory: list[dict[str, Any]] | None = None
+    stop_reason: str | None = None
 
 
 Target = Callable[[EvaluationCase], Awaitable[TargetOutput]]

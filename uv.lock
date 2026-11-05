@@ -25,6 +25,7 @@ members = [
     "evalforge-cli",
     "evalforge-engine",
     "evalforge-llm-gateway",
+    "evalforge-support-agent",
 ]
 
 [[package]]
@@ -837,6 +838,7 @@ dependencies = [
     { name = "evalforge-cli" },
     { name = "evalforge-engine" },
     { name = "evalforge-llm-gateway" },
+    { name = "evalforge-support-agent" },
 ]
 
 [package.dev-dependencies]
@@ -860,6 +862,7 @@ requires-dist = [
     { name = "evalforge-cli", editable = "apps/cli" },
     { name = "evalforge-engine", editable = "packages/evaluation_engine" },
     { name = "evalforge-llm-gateway", editable = "packages/llm_gateway" },
+    { name = "evalforge-support-agent", editable = "apps/support_agent" },
 ]
 
 [package.metadata.requires-dev]
@@ -969,6 +972,29 @@ dependencies = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "pydantic", specifier = ">=2.10" },
+]
+
+[[package]]
+name = "evalforge-support-agent"
+version = "0.1.0"
+source = { editable = "apps/support_agent" }
+dependencies = [
+    { name = "evalforge-llm-gateway" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "evalforge-llm-gateway", editable = "packages/llm_gateway" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "pydantic", specifier = ">=2.10" },
+    { name = "pydantic-settings", specifier = ">=2.7" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
 ]
 
 [[package]]

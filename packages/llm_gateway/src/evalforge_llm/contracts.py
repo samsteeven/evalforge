@@ -5,15 +5,34 @@ from typing import Any, Protocol
 from pydantic import BaseModel
 
 
+class ToolSpec(BaseModel):
+    """Un outil proposé au modèle : nom, description, schéma JSON de ses arguments."""
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
+
+
+class ToolCall(BaseModel):
+    """Un appel d'outil demandé par le modèle. Les arguments restent bruts : c'est à l'appelant de les valider."""
+
+    id: str
+    name: str
+    arguments: str
+
+
 class LLMRequest(BaseModel):
     model: str
     messages: list[dict[str, Any]]
     temperature: float = 0.0
     max_tokens: int | None = None
+    tools: list[ToolSpec] | None = None
 
 
 class LLMResponse(BaseModel):
+    # Vide quand le modèle ne répond que par des appels d'outils.
     content: str
+    tool_calls: list[ToolCall] = []
     # Identifiant renvoyé par le fournisseur : il peut différer du nom demandé (alias, version datée).
     model: str
     input_tokens: int | None = None

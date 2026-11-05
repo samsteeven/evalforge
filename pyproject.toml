@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Plateforme d'évaluation d'applications LLM, RAG et agents"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = ["evalforge-api", "evalforge-cli", "evalforge-engine", "evalforge-llm-gateway"]
+dependencies = ["evalforge-api", "evalforge-cli", "evalforge-engine", "evalforge-llm-gateway", "evalforge-support-agent"]
 
 [tool.uv]
 package = false
@@ -12,11 +12,12 @@ package = false
 conflicts = [[{ group = "ragas" }, { group = "deepeval" }]]
 
 [tool.uv.workspace]
-members = ["apps/api", "apps/cli", "packages/evaluation_engine", "packages/llm_gateway"]
+members = ["apps/api", "apps/cli", "apps/support_agent", "packages/evaluation_engine", "packages/llm_gateway"]
 
 [tool.uv.sources]
 evalforge-api = { workspace = true }
 evalforge-cli = { workspace = true }
+evalforge-support-agent = { workspace = true }
 evalforge-engine = { workspace = true }
 evalforge-llm-gateway = { workspace = true }
 
@@ -37,7 +38,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--import-mode=importlib"
 pythonpath = ["apps/api/tests", "packages/evaluation_engine/tests"]
-testpaths = ["packages/llm_gateway/tests", "packages/evaluation_engine/tests", "apps/cli/tests", "apps/api/tests"]
+testpaths = ["packages/llm_gateway/tests", "packages/evaluation_engine/tests", "apps/cli/tests", "apps/support_agent/tests", "apps/api/tests"]
 
 [tool.ruff]
 line-length = 120
@@ -49,7 +50,7 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "S", "RUF", "SIM"]
 ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["evalforge_api", "evalforge_cli", "evalforge_engine", "evalforge_llm", "helpers", "adapter_support"]
+known-first-party = ["evalforge_api", "evalforge_cli", "support_agent", "evalforge_engine", "evalforge_llm", "helpers", "adapter_support"]
 
 [tool.ruff.lint.per-file-ignores]
 # Les tests attendent l'état d'un run en interrogeant l'API, comme le ferait un client.

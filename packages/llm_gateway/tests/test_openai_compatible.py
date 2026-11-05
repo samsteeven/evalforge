@@ -3,7 +3,15 @@ import json
 import httpx
 import pytest
 
-from evalforge_llm import LLMRequest, OpenAICompatibleProvider, ProviderError, ProviderErrorKind, chat_messages
+from evalforge_llm import (
+    LLMRequest,
+    OpenAICompatibleProvider,
+    ProviderError,
+    ProviderErrorKind,
+    ToolCall,
+    ToolSpec,
+    chat_messages,
+)
 
 SECRET = "sk-test-ne-doit-jamais-sortir"
 
@@ -124,6 +132,44 @@ async def test_une_reponse_illisible_n_est_pas_rejouee():
 
     assert raised.value.kind is ProviderErrorKind.INVALID_RESPONSE
     assert len(recorder.requests) == 1
+
+
+async def test_les_outils_sont_proposes_et_les_appels_rendus():
+    reply = httpx.Response(
+        200,
+        json={
+            "id": "chatcmpl-7",
+            "model": "deepseek-chat",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {"name": "find_order", "arguments": '{"order_id": "CMD-1042"}'},
+                            }
+                        ],
+                    }
+                }
+            ],
+        },
+    )
+    recorder = Recorder(reply)
+    tool = ToolSpec(
+        name="find_order",
+        description="Cherche une commande",
+        parameters={"type": "object", "properties": {"order_id": {"type": "string"}}, "required": ["order_id"]},
+    )
+
+    response = await recorder.provider().generate(REQUEST.model_copy(update={"tools": [tool]}))
+
+    assert response.content == ""
+    assert response.tool_calls == [ToolCall(id="call_1", name="find_order", arguments='{"order_id": "CMD-1042"}')]
+    sent = json.loads(recorder.requests[0].content)
+    assert sent["tools"] == [{"type": "function", "function": tool.model_dump()}]
 
 
 def test_la_cle_n_apparait_pas_dans_la_representation():

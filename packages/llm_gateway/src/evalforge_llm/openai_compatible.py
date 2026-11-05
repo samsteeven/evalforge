@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from evalforge_llm.contracts import Capabilities, LLMRequest, LLMResponse
+from evalforge_llm.contracts import Capabilities, LLMRequest, LLMResponse, ToolCall
 from evalforge_llm.errors import ProviderError, ProviderErrorKind
 from evalforge_llm.network import UnsafeDestinationError
 
@@ -68,6 +68,14 @@ class OpenAICompatibleProvider:
         }
         if request.max_tokens is not None:
             body["max_tokens"] = request.max_tokens
+        if request.tools:
+            body["tools"] = [
+                {
+                    "type": "function",
+                    "function": {"name": t.name, "description": t.description, "parameters": t.parameters},
+                }
+                for t in request.tools
+            ]
         headers = {"Authorization": f"Bearer {self.__api_key}"} if self.__api_key else {}
 
         started = time.perf_counter()
@@ -115,12 +123,22 @@ def _retry_after(response: httpx.Response) -> float | None:
 def _parse(response: httpx.Response, latency_ms: float) -> LLMResponse:
     try:
         data = response.json()
-        content = data["choices"][0]["message"]["content"]
+        message = data["choices"][0]["message"]
+        tool_calls = [
+            ToolCall(
+                id=str(call["id"]), name=call["function"]["name"], arguments=call["function"].get("arguments") or "{}"
+            )
+            for call in message.get("tool_calls") or []
+        ]
+        content = message.get("content")
+        if content is None and tool_calls:
+            content = ""  # réponse faite uniquement d'appels d'outils
         if not isinstance(content, str):
             raise TypeError("contenu absent")
         usage = data.get("usage") or {}
         return LLMResponse(
             content=content,
+            tool_calls=tool_calls,
             model=str(data.get("model") or ""),
             input_tokens=usage.get("prompt_tokens"),
             output_tokens=usage.get("completion_tokens"),

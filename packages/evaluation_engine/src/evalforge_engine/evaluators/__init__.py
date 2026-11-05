@@ -5,10 +5,15 @@ from dataclasses import dataclass
 from typing import Literal
 
 from evalforge_engine.contracts import Evaluator
+from evalforge_engine.evaluators.agent import StepEfficiency, TaskCompletion, ToolArguments, ToolOrder, ToolSelection
 from evalforge_engine.evaluators.deterministic import ContainsExpected, ExactMatch
 from evalforge_engine.evaluators.llm_judge import CORRECTNESS, FAITHFULNESS, JudgeModel, LLMJudge
 
-Method = Literal["deterministic", "llm_judge", "ragas", "deepeval"]
+AGENT_EVALUATORS = {
+    evaluator.name: evaluator for evaluator in (ToolSelection, ToolOrder, ToolArguments, StepEfficiency, TaskCompletion)
+}
+
+Method = Literal["deterministic", "agent", "llm_judge", "ragas", "deepeval"]
 
 
 @dataclass(frozen=True)
@@ -21,8 +26,8 @@ class MetricSpec:
 
     @property
     def needs_judge(self) -> bool:
-        """Toutes les méthodes autres que déterministes interrogent un modèle : le modèle juge de l'expérience."""
-        return self.method != "deterministic"
+        """Juge LLM, Ragas, DeepEval interrogent un modèle : le modèle juge de l'expérience."""
+        return self.method not in ("deterministic", "agent")
 
     @property
     def installed(self) -> bool:
@@ -45,6 +50,41 @@ METRICS: dict[str, MetricSpec] = {
             "La réponse attendue figure dans la réponse produite",
             "deterministic",
             requires_expected=True,
+            requires_context=False,
+        ),
+        MetricSpec(
+            "tool_selection",
+            "Agent : les outils attendus ont-ils tous été appelés avec succès ?",
+            "agent",
+            requires_expected=True,
+            requires_context=False,
+        ),
+        MetricSpec(
+            "tool_order",
+            "Agent : les outils attendus ont-ils été appelés dans l'ordre attendu ?",
+            "agent",
+            requires_expected=True,
+            requires_context=False,
+        ),
+        MetricSpec(
+            "tool_arguments",
+            "Agent : les arguments attendus ont-ils été transmis aux outils ?",
+            "agent",
+            requires_expected=True,
+            requires_context=False,
+        ),
+        MetricSpec(
+            "step_efficiency",
+            "Agent : étapes inutiles, répétées ou en échec (attendues / effectuées)",
+            "agent",
+            requires_expected=True,
+            requires_context=False,
+        ),
+        MetricSpec(
+            "task_completion",
+            "Agent : réponse finale donnée sans épuiser le budget d'étapes",
+            "agent",
+            requires_expected=False,
             requires_context=False,
         ),
         MetricSpec(
@@ -112,6 +152,8 @@ def build_evaluators(names: list[str], judge: JudgeModel | None = None) -> list[
                 evaluators.append(ExactMatch())
             case "contains_expected":
                 evaluators.append(ContainsExpected())
+            case "tool_selection" | "tool_order" | "tool_arguments" | "step_efficiency" | "task_completion":
+                evaluators.append(AGENT_EVALUATORS[name]())
             case "judge_correctness":
                 evaluators.append(LLMJudge(name, CORRECTNESS, judge))  # type: ignore[arg-type]
             case "judge_faithfulness":
