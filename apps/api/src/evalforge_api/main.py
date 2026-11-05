@@ -18,6 +18,7 @@ from evalforge_api.modules.identity.routes import router as identity
 from evalforge_api.modules.projects.routes import router as projects
 from evalforge_api.modules.prompts.routes import router as prompts
 from evalforge_api.modules.providers.routes import router as providers
+from evalforge_api.modules.webhooks.routes import router as webhooks
 from evalforge_api.modules.workspaces.routes import router as workspaces
 
 log = logging.getLogger(__name__)
@@ -63,7 +64,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.passwords = Passwords()
 
     api = APIRouter(prefix="/api/v1")
-    for router in (identity, workspaces, projects, datasets, providers, prompts, experiments, evaluations, baselines):
+    for router in (
+        identity,
+        workspaces,
+        projects,
+        datasets,
+        providers,
+        prompts,
+        experiments,
+        evaluations,
+        baselines,
+        webhooks,
+    ):
         api.include_router(router)
     app.include_router(api)
 

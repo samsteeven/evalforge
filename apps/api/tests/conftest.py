@@ -86,6 +86,8 @@ def base_settings(database_url: str, rabbitmq_url: str) -> Settings:
         run_lease_seconds=2.0,
         retry_base_delay_seconds=0.2,
         max_attempts=2,
+        webhook_max_attempts=3,
+        webhook_retry_base_delay_seconds=0.2,
     )
 
 
@@ -184,10 +186,43 @@ async def support_agent_client():
     await llm.aclose()
 
 
+class WebhookReceiver:
+    """Destinataires de webhooks simulés, choisis par l'hôte :
+
+    - ok.test répond 204 ;
+    - flaky.test répond 503 à la première livraison, puis 200 ;
+    - gone.test répond 410 (refus définitif) ;
+    - down.test répond toujours 503.
+    """
+
+    def __init__(self) -> None:
+        self.requests: list[httpx.Request] = []
+
+    def received(self, host: str) -> list[httpx.Request]:
+        return [request for request in self.requests if request.url.host == host]
+
+    async def handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        host = request.url.host
+        if host == "ok.test":
+            return httpx.Response(204)
+        if host == "flaky.test":
+            return httpx.Response(503 if len(self.received(host)) == 1 else 200)
+        if host == "gone.test":
+            return httpx.Response(410)
+        return httpx.Response(503)
+
+
 @pytest.fixture
-async def worker_factory(settings: Settings, fake_llm: FakeLLM, support_agent_client):
+async def webhook_receiver() -> AsyncIterator[WebhookReceiver]:
+    yield WebhookReceiver()
+
+
+@pytest.fixture
+async def worker_factory(settings: Settings, fake_llm: FakeLLM, support_agent_client, webhook_receiver):
     """Démarre des workers branchés sur le faux fournisseur ; arrêtés en fin de test."""
     llm_client = httpx.AsyncClient(transport=httpx.MockTransport(fake_llm.handle))
+    webhook_client = httpx.AsyncClient(transport=httpx.MockTransport(webhook_receiver.handle))
     factory = http_provider_factory(llm_client, timeout_seconds=5, backoff_seconds=0)
     started: list[Worker] = []
 
@@ -197,6 +232,7 @@ async def worker_factory(settings: Settings, fake_llm: FakeLLM, support_agent_cl
             provider_factory=factory,
             worker_id=worker_id,
             agent_client=support_agent_client,
+            webhook_client=webhook_client,
         )
         await worker.start()
         started.append(worker)
@@ -206,6 +242,7 @@ async def worker_factory(settings: Settings, fake_llm: FakeLLM, support_agent_cl
     for worker in started:
         await worker.stop_quietly()
     await llm_client.aclose()
+    await webhook_client.aclose()
 
 
 @pytest.fixture

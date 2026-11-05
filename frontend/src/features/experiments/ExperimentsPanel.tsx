@@ -265,7 +265,8 @@ function CreateExperiment({ projectId, prompts }: { projectId: string; prompts: 
           >
             <Select required value={judgeId} onChange={(e) => setJudgeId(e.target.value)}>
               <option value="">Choisir un modèle</option>
-              {models.data?.map((model) => (
+              {/* Un agent ne note pas : seuls les modèles peuvent juger. */}
+              {models.data?.filter((model) => model.provider_kind !== 'evalforge_agent').map((model) => (
                 <option key={model.id} value={model.id}>{`${model.name} (${model.model_name})`}</option>
               ))}
             </Select>

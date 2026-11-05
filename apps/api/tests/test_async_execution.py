@@ -152,8 +152,9 @@ async def test_un_worker_arrete_en_plein_run_est_relaye_sans_refaire_le_travail(
     assert run["status"] == "completed"
     assert (final["worker_id"], final["attempts"]) == ("worker-b", 2)
     assert len(results) == 5 == run["completed_items"]
-    # Les réponses enregistrées par le premier worker ne sont pas redemandées (au plus celle qui était en vol).
-    assert fake_llm.calls("slow") <= 5 + 1
+    # Les réponses enregistrées par le premier worker ne sont pas redemandées. Au plus deux appels perdus à l'arrêt :
+    # celui dont la réponse était en cours d'enregistrement, et le suivant, déjà lancé pendant cet enregistrement.
+    assert fake_llm.calls("slow") <= 5 + 2
     assert fake_llm.calls("slow") >= 5
     assert done_before >= 2
 

@@ -5,6 +5,9 @@
 <préfixe>.evaluations.retry         file d'attente sans consommateur : chaque message y patiente son délai
                                     (expiration par message) puis revient dans <préfixe>.evaluations
 <préfixe>.evaluations.dead          file morte : messages abandonnés après le nombre maximal de tentatives
+<préfixe>.webhooks                  file quorum liée à evaluation.completed et evaluation.failed ; envoi des webhooks
+<préfixe>.webhooks.retry            même mécanisme de délai que pour les évaluations
+<préfixe>.webhooks.dead             événements dont l'envoi a été abandonné
 """
 
 from dataclasses import dataclass
@@ -12,7 +15,7 @@ from dataclasses import dataclass
 import aio_pika
 from aio_pika.abc import AbstractChannel, AbstractExchange
 
-from evalforge_api.messaging.events import EVALUATION_REQUESTED
+from evalforge_api.messaging.events import EVALUATION_COMPLETED, EVALUATION_FAILED, EVALUATION_REQUESTED
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,18 @@ class Topology:
     def dead(self) -> str:
         return f"{self.prefix}.evaluations.dead"
 
+    @property
+    def webhooks(self) -> str:
+        return f"{self.prefix}.webhooks"
+
+    @property
+    def webhooks_retry(self) -> str:
+        return f"{self.prefix}.webhooks.retry"
+
+    @property
+    def webhooks_dead(self) -> str:
+        return f"{self.prefix}.webhooks.dead"
+
     async def declare(self, channel: AbstractChannel) -> AbstractExchange:
         exchange = await channel.declare_exchange(self.exchange, aio_pika.ExchangeType.TOPIC, durable=True)
         quorum = {"x-queue-type": "quorum"}
@@ -51,4 +66,14 @@ class Topology:
             arguments={**quorum, "x-dead-letter-exchange": "", "x-dead-letter-routing-key": self.evaluations},
         )
         await channel.declare_queue(self.dead, durable=True, arguments=quorum)
+
+        webhooks = await channel.declare_queue(self.webhooks, durable=True, arguments=quorum)
+        for event in (EVALUATION_COMPLETED, EVALUATION_FAILED):
+            await webhooks.bind(exchange, event)
+        await channel.declare_queue(
+            self.webhooks_retry,
+            durable=True,
+            arguments={**quorum, "x-dead-letter-exchange": "", "x-dead-letter-routing-key": self.webhooks},
+        )
+        await channel.declare_queue(self.webhooks_dead, durable=True, arguments=quorum)
         return exchange

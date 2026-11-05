@@ -25,5 +25,7 @@
 | [021](0021-adaptateurs-ragas-deepeval.md) | Ragas et DeepEval derrière la passerelle EvalForge, en dépendances optionnelles | acceptée, appliquée |
 | [022](0022-execution-asynchrone.md) | Exécution asynchrone : outbox, RabbitMQ, workers à bail, reprise sans doublon, file morte | acceptée, appliquée |
 | [023](0023-detection-de-regression.md) | Baseline de projet et détection de régression appariée (McNemar exact) | acceptée, appliquée |
+| [024](0024-evaluation-d-agents.md) | Agents évalués sur leur trajectoire, à travers un contrat HTTP ; agent de support de démonstration | acceptée, appliquée |
+| [025](0025-webhooks.md) | Webhooks signés (HMAC), envoyés par les workers depuis les événements de fin de run | acceptée, appliquée |
 
 Les ADR 003 à 012 sont rédigées en détail à l'incrément qui les met en œuvre ; leur justification d'origine est dans [vision.md](../vision.md).

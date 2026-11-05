@@ -13,7 +13,7 @@
     "typecheck": "tsc -b && tsc -p cypress/tsconfig.json",
     "e2e:web": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "cy:run": "cypress run",
-    "e2e": "start-server-and-test e2e:backend \"http-get://127.0.0.1:8100/docs|http-get://127.0.0.1:8000/health\" e2e:web http-get://127.0.0.1:5173 cy:run",
+    "e2e": "start-server-and-test e2e:backend \"http-get://127.0.0.1:8100/docs|http-get://127.0.0.1:8200/health|http-get://127.0.0.1:8201/health|http-get://127.0.0.1:8000/health\" e2e:web http-get://127.0.0.1:5173 cy:run",
     "e2e:backend": "node cypress/start-backend.mjs"
   },
   "dependencies": {

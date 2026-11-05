@@ -1,10 +1,9 @@
 // Parcours complet dans un vrai navigateur : faux fournisseur LLM, API FastAPI sur PostgreSQL, front Vite.
 
+import { shoot } from '../support/shoot'
+
 const LLM = 'http://127.0.0.1:8100/v1'
 
-const shoot = (name: string) => {
-  if (Cypress.expose('screenshots')) cy.screenshot(name, { capture: 'fullPage', overwrite: true })
-}
 
 describe('Évaluation de bout en bout', () => {
   it('un compte, cinq questions, deux modèles comparés', () => {

@@ -33,3 +33,9 @@ class Settings(DatabaseSettings):
     run_lease_seconds: float = 60.0
     max_attempts: int = 3
     retry_base_delay_seconds: float = 5.0
+
+    # Webhooks : envoyés par les workers, avec la même protection SSRF que les fournisseurs.
+    allow_private_webhook_urls: bool = False
+    webhook_timeout_seconds: float = 10.0
+    webhook_max_attempts: int = 5
+    webhook_retry_base_delay_seconds: float = 30.0

@@ -5,6 +5,7 @@ import { api, unwrap, type Schemas } from '../api/client'
 import { Badge, Button, Card, ErrorAlert, Loading, PageTitle } from '../components/ui'
 import { BaselinePanel } from '../features/runs/BaselinePanel'
 import { ModelComparison } from '../features/runs/ModelComparison'
+import { Trajectory } from '../features/runs/Trajectory'
 import { milliseconds, percent, RESULT_STATUS, RUN_STATUS, usd, when } from '../lib/format'
 
 const ACTIVE = new Set(['queued', 'running'])
@@ -183,6 +184,7 @@ function ResultsTable({ results }: { results: Schemas['ResultOut'][] }) {
                     <span className="text-rose-200">{result.error}</span>
                   </span>
                 )}
+                {result.trajectory != null && <Trajectory steps={result.trajectory} stopReason={result.stop_reason} />}
               </td>
               <td className="py-2 pr-3">
                 <div className="flex flex-wrap gap-1">
@@ -204,8 +206,8 @@ function ResultsTable({ results }: { results: Schemas['ResultOut'][] }) {
                     </p>
                   ))}
               </td>
-              <td className="py-2 text-right tabular-nums">{milliseconds(result.latency_ms)}</td>
-              <td className="py-2 text-right tabular-nums text-slate-400">{result.status === 'success' ? usd(result.cost_usd) : '—'}</td>
+              <td className="py-2 pl-3 text-right whitespace-nowrap tabular-nums">{milliseconds(result.latency_ms)}</td>
+              <td className="py-2 pl-3 text-right whitespace-nowrap tabular-nums text-slate-400">{result.status === 'success' ? usd(result.cost_usd) : '—'}</td>
             </tr>
           )
         })}

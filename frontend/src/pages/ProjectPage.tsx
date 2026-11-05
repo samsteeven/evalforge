@@ -6,12 +6,14 @@ import { DatasetsPanel } from '../features/datasets/DatasetsPanel'
 import { ExperimentsPanel } from '../features/experiments/ExperimentsPanel'
 import { ModelsPanel } from '../features/models/ModelsPanel'
 import { PromptsPanel } from '../features/prompts/PromptsPanel'
+import { WebhooksPanel } from '../features/webhooks/WebhooksPanel'
 
 const TABS = [
   { id: 'datasets', label: 'Jeux de données' },
   { id: 'prompts', label: 'Prompts' },
   { id: 'models', label: 'Modèles' },
   { id: 'experiments', label: 'Expériences' },
+  { id: 'integrations', label: 'Intégrations' },
 ] as const
 
 export function ProjectPage() {
@@ -52,6 +54,7 @@ export function ProjectPage() {
       {tab === 'prompts' && <PromptsPanel projectId={projectId} />}
       {tab === 'models' && <ModelsPanel projectId={projectId} />}
       {tab === 'experiments' && <ExperimentsPanel projectId={projectId} />}
+      {tab === 'integrations' && <WebhooksPanel projectId={projectId} />}
     </>
   )
 }

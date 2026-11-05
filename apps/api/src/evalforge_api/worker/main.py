@@ -1,4 +1,4 @@
-"""Worker d'évaluation : consomme evaluation.requested et exécute les runs.
+"""Worker d'évaluation : consomme evaluation.requested et exécute les runs ; envoie aussi les webhooks des fins de run.
 
     uv run evalforge-worker
 
@@ -9,6 +9,9 @@ Garanties :
 - worker arrêté en plein run : RabbitMQ relivre le message, le bail expire, un autre worker reprend les réponses
   manquantes ;
 - erreur : nouvelle tentative avec un délai croissant, puis file morte et run en échec.
+
+Webhooks (file <préfixe>.webhooks) : une livraison par abonnement, enregistrée ; seules les livraisons encore en
+attente sont retentées, une livraison réussie n'est jamais renvoyée.
 """
 
 import asyncio
@@ -23,12 +26,14 @@ import aio_pika
 import httpx
 from aio_pika.abc import AbstractChannel, AbstractIncomingMessage, AbstractRobustConnection
 from pydantic import ValidationError
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import evalforge_api.models  # noqa: F401  (toutes les tables : sinon les clés étrangères ne se résolvent pas)
 from evalforge_api.core.config import Settings
 from evalforge_api.core.secrets import SecretBox
 from evalforge_api.messaging.events import EVALUATION_REQUESTED, Envelope, EvaluationRequested
+from evalforge_api.messaging.models import ProcessedMessage
 from evalforge_api.messaging.outbox import OutboxPublisher
 from evalforge_api.messaging.topology import Topology
 from evalforge_api.modules.evaluations.models import RunStatus
@@ -42,11 +47,13 @@ from evalforge_api.modules.evaluations.runner import (
     release_run,
 )
 from evalforge_api.modules.providers.factory import ProviderFactory, http_provider_factory
+from evalforge_api.modules.webhooks.delivery import WEBHOOK_EVENTS, dispatch
 from evalforge_llm.network import SafeTransport
 
 log = logging.getLogger("evalforge.worker")
 
 CONSUMER = "evaluation-worker"
+WEBHOOK_CONSUMER = "webhook-dispatcher"
 ATTEMPT_HEADER = "x-evalforge-attempt"
 
 
@@ -57,12 +64,14 @@ class Worker:
         provider_factory: ProviderFactory | None = None,
         worker_id: str | None = None,
         agent_client: httpx.AsyncClient | None = None,
+        webhook_client: httpx.AsyncClient | None = None,
     ) -> None:
         self.settings = settings
         self.worker_id = worker_id or f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
         self.topology = Topology(settings.rabbitmq_prefix)
         self._provider_factory = provider_factory
         self._agent_client = agent_client
+        self._webhook_client = webhook_client
         self._connection: AbstractRobustConnection | None = None
         self._channel: AbstractChannel | None = None
         self._in_flight: set[asyncio.Task] = set()
@@ -77,6 +86,11 @@ class Worker:
         )
         # Les agents évalués sont joints par HTTP, avec la même protection SSRF que les fournisseurs.
         self.agent_client = self._agent_client or self._http
+        self._webhook_http = httpx.AsyncClient(
+            transport=SafeTransport(allow_private=settings.allow_private_webhook_urls),
+            timeout=settings.webhook_timeout_seconds,
+        )
+        self.webhook_client = self._webhook_client or self._webhook_http
         self.secret_box = SecretBox(settings.secret_key.get_secret_value())
         # Les événements de fin écrits par le worker partent aussi sans attendre l'API.
         self.publisher = OutboxPublisher(
@@ -93,7 +107,9 @@ class Worker:
         await self.topology.declare(self._channel)
         queue = await self._channel.get_queue(self.topology.evaluations)
         self._consumer_tag = await queue.consume(self._on_message)
-        log.info("Worker %s à l'écoute de %s", self.worker_id, self.topology.evaluations)
+        webhooks = await self._channel.get_queue(self.topology.webhooks)
+        await webhooks.consume(self._on_webhook_message)
+        log.info("Worker %s à l'écoute de %s et %s", self.worker_id, self.topology.evaluations, self.topology.webhooks)
 
     async def stop(self) -> None:
         # Les runs en cours s'arrêtent là ; fermer le canal rend leurs messages non acquittés à RabbitMQ, et un
@@ -105,6 +121,7 @@ class Worker:
             await self._connection.close()
         await self.publisher.stop()
         await self._http.aclose()
+        await self._webhook_http.aclose()
         await self._engine.dispose()
         self._stopped = True
 
@@ -120,6 +137,63 @@ class Worker:
             await self._receive(message)
         finally:
             self._in_flight.discard(task)
+
+    async def _on_webhook_message(self, message: AbstractIncomingMessage) -> None:
+        task = asyncio.current_task()
+        self._in_flight.add(task)
+        try:
+            await self._deliver_webhooks(message)
+        finally:
+            self._in_flight.discard(task)
+
+    async def _deliver_webhooks(self, message: AbstractIncomingMessage) -> None:
+        try:
+            envelope = Envelope.model_validate_json(message.body)
+            if envelope.event_type not in WEBHOOK_EVENTS or envelope.schema_version != 1:
+                raise ValueError(f"événement non pris en charge : {envelope.event_type} v{envelope.schema_version}")
+        except (ValidationError, ValueError) as error:
+            await self._publish_to(self.topology.webhooks_dead, message, attempt=1, error=f"message invalide : {error}")
+            await message.ack()
+            return
+        if await already_processed(self.session_factory, envelope.event_id, WEBHOOK_CONSUMER):
+            await message.ack()
+            return
+
+        attempt = int((message.headers or {}).get(ATTEMPT_HEADER, 1))
+        final = attempt >= self.settings.webhook_max_attempts
+        try:
+            pending = await dispatch(
+                self.session_factory,
+                envelope,
+                client=self.webhook_client,
+                secret_box=self.secret_box,
+                final_attempt=final,
+            )
+        except Exception as error:
+            log.exception("Webhooks de %s : tentative %d en erreur", envelope.correlation_id, attempt)
+            if final:
+                await self._publish_to(self.topology.webhooks_dead, message, attempt=attempt, error=str(error))
+                await message.ack()
+                return
+            pending, reason = -1, f"{type(error).__name__} : {error}"
+        else:
+            reason = f"{pending} livraison(s) en attente"
+        if pending and not final:
+            delay = self.settings.webhook_retry_base_delay_seconds * 2 ** (attempt - 1)
+            await self._publish_to(
+                self.topology.webhooks_retry, message, attempt=attempt + 1, delay=delay, error=reason
+            )
+            await message.ack()
+            return
+
+        async with self.session_factory() as session:
+            await session.execute(
+                insert(ProcessedMessage)
+                .values(message_id=envelope.event_id, consumer=WEBHOOK_CONSUMER)
+                .on_conflict_do_nothing()
+            )
+            await session.commit()
+        await message.ack()
 
     async def _receive(self, message: AbstractIncomingMessage) -> None:
         try:

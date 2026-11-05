@@ -10,6 +10,7 @@ from evalforge_api.modules.identity.models import RefreshToken, User
 from evalforge_api.modules.projects.models import AIProject
 from evalforge_api.modules.prompts.models import PromptVersion
 from evalforge_api.modules.providers.models import ModelConfiguration
+from evalforge_api.modules.webhooks.models import Webhook, WebhookDelivery
 from evalforge_api.modules.workspaces.models import Workspace, WorkspaceMember
 
 __all__ = [
@@ -30,6 +31,8 @@ __all__ = [
     "RefreshToken",
     "TestCase",
     "User",
+    "Webhook",
+    "WebhookDelivery",
     "Workspace",
     "WorkspaceMember",
 ]

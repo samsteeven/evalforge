@@ -205,8 +205,11 @@ async def execute_run(
         max_concurrency=execution["max_concurrency"],
         timeout_seconds=execution["timeout_seconds"],
     )
-    async for outcome in outcomes:
-        await _persist(session_factory, run_id, outcome, pricing)
+    # aclosing : un arrêt pendant l'enregistrement ferme aussi le générateur, et annule ses appels encore en vol
+    # (sinon ils continuent jusqu'au ramasse-miettes, et un worker arrêté interroge encore les modèles).
+    async with contextlib.aclosing(outcomes):
+        async for outcome in outcomes:
+            await _persist(session_factory, run_id, outcome, pricing)
 
 
 async def _persist(

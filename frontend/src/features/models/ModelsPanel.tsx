@@ -4,7 +4,18 @@ import { api, unwrap, type Schemas } from '../../api/client'
 import { useWorkspace } from '../../auth/useAuth'
 import { Badge, Button, Card, Empty, ErrorAlert, Field, Input, Loading, Select } from '../../components/ui'
 
-const KIND_LABEL: Record<string, string> = { openai_compatible: 'Compatible OpenAI', ollama: 'Ollama' }
+type Kind = 'openai_compatible' | 'ollama' | 'evalforge_agent'
+
+const KIND_LABEL: Record<string, string> = {
+  openai_compatible: 'Compatible OpenAI',
+  ollama: 'Ollama',
+  evalforge_agent: 'Agent EvalForge',
+}
+const DEFAULT_URL: Record<Kind, string> = {
+  openai_compatible: 'https://api.deepseek.com/v1',
+  ollama: 'http://localhost:11434/v1',
+  evalforge_agent: 'http://127.0.0.1:8200',
+}
 
 export function ModelsPanel({ projectId }: { projectId: string }) {
   const { canAdmin } = useWorkspace()
@@ -40,7 +51,7 @@ function ModelCard({ model }: { model: Schemas['ModelConfigurationOut'] }) {
         {model.has_api_key ? <Badge tone="success">Clé chiffrée</Badge> : <Badge>Sans clé</Badge>}
       </div>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-        <dt className="text-slate-500">Modèle</dt>
+        <dt className="text-slate-500">{model.provider_kind === 'evalforge_agent' ? 'Version' : 'Modèle'}</dt>
         <dd className="font-mono text-slate-300">{model.model_name}</dd>
         <dt className="text-slate-500">Adresse</dt>
         <dd className="truncate font-mono text-slate-300">{model.base_url}</dd>
@@ -63,7 +74,7 @@ function CreateModel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient()
   const [form, setForm] = useState({
     name: '',
-    provider_kind: 'openai_compatible' as 'openai_compatible' | 'ollama',
+    provider_kind: 'openai_compatible' as Kind,
     base_url: 'https://api.deepseek.com/v1',
     model_name: '',
     temperature: '0',
@@ -105,6 +116,7 @@ function CreateModel({ projectId }: { projectId: string }) {
       void queryClient.invalidateQueries({ queryKey: ['models', projectId] })
     },
   })
+  const agent = form.provider_kind === 'evalforge_agent'
   const submit = (event: FormEvent) => {
     event.preventDefault()
     create.mutate()
@@ -125,19 +137,23 @@ function CreateModel({ projectId }: { projectId: string }) {
               setForm((current) => ({
                 ...current,
                 provider_kind: kind,
-                base_url: kind === 'ollama' ? 'http://localhost:11434/v1' : 'https://api.deepseek.com/v1',
+                base_url: DEFAULT_URL[kind],
               }))
             }}
           >
             <option value="openai_compatible">Compatible OpenAI</option>
             <option value="ollama">Ollama</option>
+            <option value="evalforge_agent">Agent EvalForge (POST /v1/agent/run)</option>
           </Select>
         </Field>
         <Field label="Adresse de l'API" hint="Les adresses internes sont refusées, sauf configuration explicite du serveur">
           <Input required type="url" value={form.base_url} onChange={set('base_url')} />
         </Field>
-        <Field label="Identifiant du modèle">
-          <Input required value={form.model_name} onChange={set('model_name')} placeholder="deepseek-chat" />
+        <Field
+          label={agent ? "Version de l'agent" : 'Identifiant du modèle'}
+          hint={agent ? 'Libre : sert à distinguer les versions comparées' : undefined}
+        >
+          <Input required value={form.model_name} onChange={set('model_name')} placeholder={agent ? 'v1' : 'deepseek-chat'} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Température">

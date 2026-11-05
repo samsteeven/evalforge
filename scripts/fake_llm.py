@@ -11,6 +11,8 @@ Le comportement dépend du modèle demandé :
 - « careless-agent » pilote le même agent en faisant les erreurs typiques : transfert inutile à un humain, numéro de
   commande mal formé, politique de retour inventée au lieu d'être consultée ;
 - tout autre nom renvoie une erreur 404, comme un fournisseur réel.
+Il sert aussi de destinataire de webhooks pour la démonstration : POST /webhooks/receive les garde en mémoire,
+GET /webhooks/received les relit.
 Les latences sont tirées au hasard pour donner des percentiles réalistes ; aucune donnée ne sort du poste.
 """
 
@@ -23,7 +25,7 @@ import uuid
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -188,6 +190,27 @@ async def chat(request: ChatRequest) -> JSONResponse:
             },
         }
     )
+
+
+RECEIVED: list[dict[str, Any]] = []
+
+
+@app.post("/webhooks/receive", status_code=204)
+async def receive_webhook(request: Request) -> Response:
+    RECEIVED.append(
+        {
+            "event": request.headers.get("x-evalforge-event"),
+            "signature": request.headers.get("x-evalforge-signature"),
+            "payload": json.loads(await request.body()),
+        }
+    )
+    del RECEIVED[:-50]
+    return Response(status_code=204)
+
+
+@app.get("/webhooks/received")
+async def received_webhooks() -> list[dict[str, Any]]:
+    return RECEIVED
 
 
 if __name__ == "__main__":
